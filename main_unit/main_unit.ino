@@ -3,12 +3,13 @@
 // this version uses delay() to manage timing
 
 #include <Servo.h>
+#include <SPI.h>
+#include "RF24.h"
 
 Servo pen_servo;
 byte servoPin = 8;
 
-byte directionPinRight = 11;
-byte stepPinRight = 12;
+RF24 radio(9,10); // check the pins for SPI 
 byte directionPinLeft = 9;
 byte stepPinLeft = 10;
 byte ledPin = 13;
@@ -17,6 +18,16 @@ bool pen_updown = true;
 int numberOfSteps = 200;
 int pulseWidthMicros = 20;  // microseconds
 int millisbetweenSteps = 50; // milliseconds - or try 1000 for slower steps
+
+byte addresses[][6] = {"Unit1","Unit2"}; // Unit1 = Main, Unit2 = Satellite
+const unsigned long step_delay = 100;
+enum direction : bool { FORWARD = true, BACKWARDS = false};
+
+struct dataStruct {
+  bool msg_bit;
+  bool direction;
+  unsigned int value;
+} dataStruct;
 
 struct Point {
   float x;
@@ -29,7 +40,7 @@ const float step_length = 40.0/200.0; // the distance a step increases the strin
 unsigned long a_steps; // the number of steps the pen is away from the left motor
 unsigned long b_steps; // the number of steps the pen is away from the right motor
 Point img_offset = { motor_distance / 2.0, motor_distance / 2.0 };
-const unsigned long step_delay = 100;
+bool unit2_msg_bit = false;
 
 const byte POINT_COUNT = 5;
 float getImg(byte point, bool XorY) {
@@ -46,7 +57,15 @@ float getImg(byte point, bool XorY) {
 }
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
+  Serial.println(F("Main unit "));
+  
+  radio.begin();
+  radio.setPALevel(RF24_PA_LOW);
+  radio.openWritingPipe(addresses[1]);
+  radio.openReadingPipe(1,addresses[0]);
+  radio.startListening();
+
   pen_servo.attach(servoPin);
   // initialize a/b_steps by calibration
   a_steps = (unsigned int) (1.4142135 * (motor_distance/2.0) / step_length);
@@ -86,21 +105,24 @@ void loop() {
   float b_diff = b_next - b;
   int step_count_a = a_diff / step_length;
   int step_count_b = b_diff / step_length;
+  Direction dir_b,dir_a;
   
   //update the current position of the pen
   a_steps += step_count_a;
   b_steps += step_count_b;
   
   if (step_count_a < 0) {
-    digitalWrite(directionPinLeft, LOW);
-  } else {
+    dir_a = BACKWARDS;
     digitalWrite(directionPinLeft, HIGH);
+  } else {
+    dir_a = FORWARD;
+    digitalWrite(directionPinLeft, LOW);
   }
 
   if (step_count_b < 0) {
-    digitalWrite(directionPinRight, HIGH);
+    dir_b = BACKWARDS;
   } else {
-    digitalWrite(directionPinRight, LOW);
+    dir_b = FORWARD;
   }
 
   // drop the information of direction
@@ -132,12 +154,44 @@ void loop() {
     
     // move b closer to target
     num_steps = min(step_count_b, group_size_b);
-    for (unsigned int x = 1; x <= num_steps; x++) {
-      digitalWrite(stepPinRight, HIGH);
-      digitalWrite(stepPinRight, LOW);
-      if (x < num_steps) delay(step_delay);
+
+    bool success = false;
+    while (!success) {
+      radio.stopListening();
+      // send the message 
+      dataStruct.msg_bit = unit2_msg_bit;
+      dataStruct.direction = dir_b;
+      dataStruct.value = num_steps;
+
+      if (!radio.write( &dataStruct, sizeof(dataStruct) )){
+        Serial.println(F("Send failed"));
+        continue;
+      }
+
+      radio.startListening();
+      unsigned long started_waiting_at = micros();
+      boolean timeout = false;
+      while ( ! radio.available() ){
+        if (micros() - started_waiting_at > 200000 ){
+            timeout = true;
+            break;
+        }
+      }
+
+      if ( timeout ){
+        Serial.println(F("Response timeout"));
+      } else {
+        bool response_msg_bit;
+        radio.read( &response_msg_bit, sizeof(response_msg_bit));
+        if (response_msg_bit == unit2_msg_bit) {
+          unit2_msg_bit = !unit2_msg_bit;
+          step_count_b -= num_steps;
+          // save state to eeprom
+          success = true;
+        }
+      }
     }
-    step_count_b -= num_steps;
+  
     //Serial.print("End of Loop: ");
     //Serial.print(step_count_a);
     //Serial.print(" ");

@@ -8,29 +8,27 @@
 #include <SPI.h>
 #include "RF24.h"
 
-byte addresses[][6] = {"Unit1","Unit2"};
-const unsigned byte step_delay = 100;
-
-/****************** User Config ***************************/
-/***      Set this radio as radio number 0 or 1         ***/
-const bool radioNumber = 1;
-byte directionPin = 5;
-byte stepPin = 6;
+const byte directionPin = 5;
+const byte stepPin = 6;
+bool msg_bit = false;
 
 /* Hardware configuration: Set up nRF24L01 radio on SPI bus plus pins*/
 RF24 radio(9,10);
-/**********************************************************/
+
+byte addresses[][6] = {"Unit1","Unit2"}; // Unit1 = Main, Unit2 = Satellite
+const unsigned byte step_delay = 100;
+enum direction : bool { FORWARD = true, BACKWARDS = false};
 
 struct dataStruct{
-  unsigned long _micros;
-  unsigned int msg_count;
-  int value;
-} myData;
+  bool msg_bit;
+  bool direction;
+  unsigned int value;
+} dataStruct;
 
 void setup() {
 
   Serial.begin(115200);
-  Serial.println(F("Satellite unit "));
+  Serial.println(F("Unit2"));
   
   radio.begin();
 
@@ -38,8 +36,8 @@ void setup() {
  // getting_started sketch, and the likelihood of close proximity of the devices. RF24_PA_MAX is default.
   radio.setPALevel(RF24_PA_LOW);
   
-  radio.openWritingPipe(addresses[1]);
-  radio.openReadingPipe(1,addresses[0]);
+  radio.openWritingPipe(addresses[0]);
+  radio.openReadingPipe(1,addresses[1]);
   
   // Start the radio listening for data
   radio.startListening();
@@ -47,23 +45,26 @@ void setup() {
 
 void loop() {
   if( radio.available()){
-    radio.read( &myData, sizeof(myData) );             // Get the payload
+    radio.read( &dataStruct, sizeof(dataStruct) );             // Get the payload
     radio.stopListening();                               // First, stop listening so we can talk  
 
-    if (myData.value < 0) {
-      digitalWrite(directionPin, HIGH);
-    } else {
-      digitalWrite(directionPin, LOW);
+    // skip message 
+    if (msg_bit == dataStruct.msg_bit) {
+
+      if (myData.direction == BACKWARDS) {
+        digitalWrite(directionPin, LOW);
+      } else {
+        digitalWrite(directionPin, HIGH);
+      }
+      for (unsigned int x = 1; x <= dataStruct.value; x++) {
+        digitalWrite(stepPin, HIGH);
+        digitalWrite(stepPin, LOW);
+        delay(step_delay);
+      }
     }
-    for (unsigned int x = 1; x <= abs(myData.value); x++) {
-      digitalWrite(stepPin, HIGH);
-      digitalWrite(stepPin, LOW);
-      if (x < num_steps) delay(step_delay);
-    }
-    radio.write( &myData, sizeof(myData) );              // Send the final one back.      
-    radio.startListening();                              // Now, resume listening so we catch the next packets.     
+    radio.write( &dataStruct.msg_bit, sizeof(&dataStruct.msg_bit) );
+    radio.startListening();
     Serial.print(F("Sent response "));
-    Serial.print(myData._micros);  
     Serial.print(F(" : "));
     Serial.println(myData.value);
   }
