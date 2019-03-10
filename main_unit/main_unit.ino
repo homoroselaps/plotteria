@@ -74,8 +74,10 @@ bool sendMessage(AddrIndex addr, byte num_retry = 5) {
     radio.startListening();
     
     unsigned long started_waiting_at = micros();
+    unsigned long timewaited = 0;
     while ( ! radio.available() ){
-      if (micros() - started_waiting_at > 200000 ) {
+      if (micros() - started_waiting_at > 2000000 ) {
+          timewaited = micros() - started_waiting_at;
           break;
       }
     }
@@ -97,15 +99,16 @@ bool sendMessage(AddrIndex addr, byte num_retry = 5) {
     }
 
     //wait for the right motor to finish
-    delay(msg_data.value * step_delay);
+    unsigned int wait_duration = max(msg_data.value * step_delay - (timewaited / 1000), 0);
+    delay(wait_duration);
 
     started_waiting_at = micros();
-    while ( ! radio.available() ){
-      if (micros() - started_waiting_at > 200000 ) {
+    while ( ! radio.available()){
+      if (micros() - started_waiting_at > 2000000 ) {
           break;
       }
     }
-
+    
     if ( radio.available() ) {
       byte response_nonce;
       radio.read( &response_nonce, sizeof(response_nonce));
@@ -120,6 +123,8 @@ bool sendMessage(AddrIndex addr, byte num_retry = 5) {
         Serial.println(response_nonce);
       }
     }
+
+    flush();
 
     if ( success ){
       Serial.println("Success");
@@ -152,10 +157,8 @@ void loop() {
   Serial.println("Loop");
   
   controlRightMotor(FORWARD, 100);
-  flush();
   delay(2000);
   controlRightMotor(BACKWARD, 100);
-  flush();
   delay(2000);
   
   return;

@@ -11,8 +11,8 @@
 
 /* Hardware configuration: Set up nRF24L01 radio on SPI bus plus pins*/
 RF24 radio(9,10);
-const byte directionPin = 5;
-const byte stepPin = 6;
+const byte directionPin = 6;
+const byte stepPin = 5;
 
 Message msg_data;
 
@@ -46,20 +46,15 @@ void loop() {
     } else {
       digitalWrite(directionPin, HIGH);
     }
-    Serial.println(msg_data.value);
+    Serial.print(msg_data.value);
     bool toogle = false;
     for (unsigned int x = 1; x <= msg_data.value; x++) {
       digitalWrite(stepPin, HIGH);
-      delay(step_delay);
       digitalWrite(stepPin, LOW);
       delay(step_delay);
-      if (toogle) {
-        digitalWrite(3, HIGH);
-      } else {
-        digitalWrite(3, LOW);
-      }
-      toogle = !toogle;
+      if (x % 5 == 0) Serial.print(".");
     }
+    Serial.println("");
 
     for (byte i = 0; i < 1; i++) {
       if (!radio.write( &msg_data.nonce, sizeof(msg_data.nonce) )){
