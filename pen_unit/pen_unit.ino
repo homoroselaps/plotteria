@@ -12,7 +12,7 @@
 
 
 /* Hardware configuration: Set up nRF24L01 radio on SPI bus plus pins*/
-RF24 radio(9,10);
+RF24 radio(10,9);
 Servo pen_servo;
 byte servoPin = 8;
 
@@ -51,17 +51,21 @@ void loop() {
     radio.read( &msg_data, sizeof(msg_data) );             // Get the payload
     radio.stopListening();                               // First, stop listening so we can talk  
 
-    // skip message 
+    //Send Nonce
+    radio.write( &msg_data.nonce, sizeof(msg_data.nonce) );
+
+    Serial.print("Received");
+    Serial.println(msg_data.nonce);
+    
     setPen((PenPosition)msg_data.direction);
-    Serial.println(msg_data.direction);
+    
     for (byte i = 0; i < 1; i++) {
       if (!radio.write( &msg_data.nonce, sizeof(msg_data.nonce) )){
-        Serial.print("Send failed");
+        Serial.print("Send failed ");
         Serial.println(msg_data.nonce);
         continue;
       } else {
-        Serial.print(F("Sent response "));
-        Serial.print(F(" : "));
+        Serial.print("Sent response ");
         Serial.println(msg_data.nonce);
         break;
       }

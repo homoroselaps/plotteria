@@ -1,5 +1,5 @@
 
-const unsigned long step_delay = 100;
+const unsigned int step_delay = 100;
 
 byte addresses[][6] = {"Unit1","Unit2", "Unit3"};
 enum AddrIndex : byte { MAIN_UNIT = 0, RIGHT_UNIT = 1, PEN_UNIT = 2};
@@ -19,4 +19,3 @@ struct Point {
   float x;
   float y;
 };
-

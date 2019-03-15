@@ -10,7 +10,7 @@
 #include "Shared.h"
 
 /* Hardware configuration: Set up nRF24L01 radio on SPI bus plus pins*/
-RF24 radio(9,10);
+RF24 radio(10,9);
 const byte directionPin = 6;
 const byte stepPin = 5;
 
@@ -33,7 +33,6 @@ void loop() {
   if( radio.available()){
     radio.read( &msg_data, sizeof(msg_data) );
     radio.stopListening(); 
-
     //Send Nonce
     radio.write( &msg_data.nonce, sizeof(msg_data.nonce) );
 

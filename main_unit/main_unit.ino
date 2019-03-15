@@ -6,7 +6,7 @@
 #include "RF24.h"
 #include "Shared.h"
 
-RF24 radio(9,10); // check the pins for SPI 
+RF24 radio(10,9); // check the pins for SPI 
 byte directionPinLeft = 6;
 byte stepPinLeft = 5;
 byte ledPin = 13;
@@ -57,7 +57,7 @@ void flush() {
   }
 }
 
-bool sendMessage(AddrIndex addr, byte num_retry = 5) {
+bool sendMessage(AddrIndex addr, unsigned int wait_millis=0, byte num_retry = 5) {
   static byte nonce = 0;
   radio.openWritingPipe(addresses[addr]);
   
@@ -75,10 +75,15 @@ bool sendMessage(AddrIndex addr, byte num_retry = 5) {
     
     unsigned long started_waiting_at = micros();
     unsigned long timewaited = 0;
+    byte counter = 0;
     while ( ! radio.available() ){
+      timewaited = micros() - started_waiting_at;
+      if (timewaited / 100000 > counter) {
+        counter++;
+        Serial.print("|");
+      }
       if (micros() - started_waiting_at > 2000000 ) {
-          timewaited = micros() - started_waiting_at;
-          break;
+        break;
       }
     }
 
@@ -99,13 +104,19 @@ bool sendMessage(AddrIndex addr, byte num_retry = 5) {
     }
 
     //wait for the right motor to finish
-    unsigned int wait_duration = max(msg_data.value * step_delay - (timewaited / 1000), 0);
+    unsigned int wait_duration = max((int)wait_millis - (int)(timewaited / 1000), 0);
     delay(wait_duration);
 
     started_waiting_at = micros();
+    counter = 0;
     while ( ! radio.available()){
+      timewaited = micros() - started_waiting_at;
+      if (timewaited / 100000 > counter) {
+        counter++;
+        Serial.print("|");
+      }
       if (micros() - started_waiting_at > 2000000 ) {
-          break;
+        break;
       }
     }
     
@@ -136,12 +147,18 @@ bool sendMessage(AddrIndex addr, byte num_retry = 5) {
 }
 
 bool controlRightMotor(Direction dir, unsigned int num_steps) {
+  Serial.print("Set Right:");
+  Serial.print(dir);
+  Serial.print(" ,");
+  Serial.println(num_steps);
   msg_data.direction = dir;
   msg_data.value = num_steps;
-  return sendMessage(RIGHT_UNIT);
+  return sendMessage(RIGHT_UNIT, msg_data.value * step_delay);
 }
 
 bool controlPen(PenPosition pos) {
+  Serial.print("Set Pen:");
+  Serial.println(pos);
   msg_data.direction = pos;
   msg_data.value = 0;
   return sendMessage(PEN_UNIT);
@@ -154,14 +171,17 @@ void loop() {
     return;
   }
 
+  /*Test 
   Serial.println("Loop");
   
   controlRightMotor(FORWARD, 100);
+  //controlPen(UP);
   delay(2000);
   controlRightMotor(BACKWARD, 100);
+  //controlPen(DOWN);
   delay(2000);
   
-  return;
+  return;*/
 
   //iterate over all pair of points
   pen_updown = !pen_updown;
@@ -218,6 +238,10 @@ void loop() {
     delay(step_delay/3);
     // move a closer to target
     unsigned int num_steps = min(step_count_a, group_size_a);
+    Serial.print("Set Left:");
+    Serial.print(dir_a);
+    Serial.print(" ,");
+    Serial.println(num_steps);
     for (unsigned int x = 1; x <= num_steps; x++) {
       digitalWrite(stepPinLeft, HIGH);
       digitalWrite(stepPinLeft, LOW);
