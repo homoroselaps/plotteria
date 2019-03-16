@@ -19,3 +19,19 @@ struct Point {
   float x;
   float y;
 };
+
+//Alex Remote Control
+const unsigned long R1_Play = 0x59A6C03F;
+const unsigned long R1_Pause = 0x59A6D827;
+const unsigned long R1_Right = 0x59A6629D;
+const unsigned long R1_Left  = 0x59A6DA25;
+const unsigned long R1_Up    = 0x59A6F20D;
+const unsigned long R1_Down  = 0x59A66A95;
+const unsigned long R1_Prev  = 0x59A6609F;
+const unsigned long R1_TuneL = 0x59A6E817;
+const unsigned long R1_TuneR = 0x59A6E01F;
+const unsigned long R1_Next  = 0x59A640BF;
+const unsigned long R1_VolPlus   = 0x59A642BD;
+const unsigned long R1_VolMinus  = 0x59A652AD;
+const unsigned long R1_Stop  = 0x59A6F00F;
+const unsigned long R1_Enter = 0x59A64AB5;
