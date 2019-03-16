@@ -7,7 +7,7 @@
 #include "Shared.h"
 #include <IRremote.h> 
 
-enum STMState : byte { READY = 0, DRAW, MOVER, MOVEL, MOVEU MOVED, MOTOR_RF, MOTOR_RB, MOTOR_LF, MOTOR_LB};
+enum STMState : byte { READY = 0, DRAW, MOVER, MOVEL, MOVEU, MOVED, MOTOR_RF, MOTOR_RB, MOTOR_LF, MOTOR_LB};
 byte ce_pin  = 10;
 byte csn_pin = 9;
 byte ir_pin  = 8;
@@ -159,10 +159,10 @@ bool sendMessage(AddrIndex addr, unsigned int wait_millis=0, byte num_retry = 5)
 
 bool controlLeftMotor(Direction dir, unsigned int num_steps) {
   Serial.print("Set Left:");
-  Serial.print(dir_a);
+  Serial.print(dir);
   Serial.print(" ,");
   Serial.println(num_steps);
-  if (dir_a == BACKWARD) {
+  if (dir == BACKWARD) {
     digitalWrite(dir_pin, HIGH);
   } else {
     digitalWrite(dir_pin, LOW);
@@ -197,9 +197,9 @@ Point abToPoint(unsigned int a, unsigned int b, float motor_distance) {
   float length_a = a * step_length;
   float length_b = b * step_length;
   float s = 0.5 * (length_a + length_b + motor_distance);
-  float y = (2.0 / motor_distance) * sqrt(s*(s-a)*(s-b)*(s-c));
+  float y = (2.0 / motor_distance) * sqrt(s*(s-a)*(s-b)*(s-motor_distance));
   float x = sqrt(sq(a)+sq(y));
-  return Point(x,y);
+  return (Point){x,y};
 }
 
 void save_img_offset() {
@@ -298,7 +298,7 @@ void loop() {
       }
       break;
     case MOTOR_LF: 
-      controlLeftMotor(FORWARD), 1);
+      controlLeftMotor(FORWARD, 1);
       delay(step_delay);
       if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
       {
@@ -308,7 +308,7 @@ void loop() {
       }
       break;
     case MOTOR_RF:
-      if (controlRightMotor(FORWARD), 1)) {
+      if (controlRightMotor(FORWARD, 1)) {
         current_b++;
       }
       delay(step_delay);
