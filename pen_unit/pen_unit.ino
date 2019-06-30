@@ -15,9 +15,12 @@
 RF24 radio(10,9);
 Servo pen_servo;
 byte servoPin = 8;
+byte powerPin = 6;
 
 const byte angle_down = 0;
 const byte angle_up = 90;
+unsigned long power_time = 0;
+bool power_on = false;
 
 Message msg_data;
 
@@ -31,7 +34,6 @@ void setPen(PenPosition targetPos) {
 }
 
 void setup() {
-
   Serial.begin(115200);
   Serial.println(F("Pen Unit"));
   
@@ -44,6 +46,8 @@ void setup() {
 
   pen_servo.attach(servoPin);
   pen_servo.write(angle_down);
+
+  pinMode(powerPin, OUTPUT);
 }
 
 void loop() {
@@ -71,5 +75,14 @@ void loop() {
       }
     }
     radio.startListening();
+  }
+  if (millis() - power_time > 10000) {
+    power_time = millis();
+    power_on = true;
+    digitalWrite(powerPin, HIGH);
+  }
+  else if (power_on && (millis() - power_time > 1000)) {
+    power_on = false;
+    digitalWrite(powerPin, LOW);
   }
 }

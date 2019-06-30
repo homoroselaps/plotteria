@@ -35,3 +35,4 @@ const unsigned long R1_VolPlus   = 0x59A642BD;
 const unsigned long R1_VolMinus  = 0x59A652AD;
 const unsigned long R1_Stop  = 0x59A6F00F;
 const unsigned long R1_Enter = 0x59A64AB5;
+const unsigned long R1_Setup = 0x59A62AD5;

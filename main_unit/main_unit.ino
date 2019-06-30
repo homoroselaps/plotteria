@@ -27,7 +27,8 @@ unsigned int point_index;
 const float motor_distance = 700.0; // the distance between the two motors in mm
 unsigned long current_a; // the number of steps the pen is away from the left motor
 unsigned long current_b; // the number of steps the pen is away from the right motor
-Point img_offset = { motor_distance / 2.0, motor_distance / 2.0 };
+Point img_offset;
+Point origin;
 
 const byte POINT_COUNT = 5;
 float getImg(byte point, bool XorY) {
@@ -55,9 +56,17 @@ void setup() {
   radio.startListening();
 
   // initialize a/current_b by calibration
+  calibrate();
+  save_img_offset();
+  point_index = 0;
+}
+
+void calibrate() {
   current_a = (unsigned int) (1.4142135 * (motor_distance/2.0) / step_length);
   current_b = (unsigned int) (1.4142135 * (motor_distance/2.0) / step_length);
-  point_index = 0;
+  origin = (Point){ motor_distance / 2.0, motor_distance / 2.0 };
+  Serial.println((String)"origin saved"+origin.x+", "+origin.y);
+  Serial.println((String)"ab:"+current_a+", "+current_b);
 }
 
 void flush() {
@@ -68,13 +77,13 @@ void flush() {
   }
 }
 
-bool sendMessage(AddrIndex addr, unsigned int wait_millis=0, byte num_retry = 5) {
+bool sendMessage(AddrIndex addr, unsigned int wait_millis=0, byte num_retry = 2) {
   static byte nonce = 0;
   radio.openWritingPipe(addresses[addr]);
   
   for (byte i = 0; i < num_retry; i++) {
     Serial.print("try #");
-    Serial.println(i);
+    Serial.print(i);
     msg_data.nonce = nonce;
     radio.stopListening();
     if (!radio.write( &msg_data, sizeof(msg_data) )){
@@ -97,6 +106,7 @@ bool sendMessage(AddrIndex addr, unsigned int wait_millis=0, byte num_retry = 5)
         break;
       }
     }
+    Serial.println("");
 
     boolean success = false;
     if ( radio.available() ) {
@@ -193,17 +203,18 @@ bool controlPen(PenPosition pos) {
   return sendMessage(PEN_UNIT);
 }
 
-Point abToPoint(unsigned int a, unsigned int b, float motor_distance) {
-  float length_a = a * step_length;
-  float length_b = b * step_length;
+Point abToPoint(unsigned int steps_a, unsigned int steps_b, float motor_distance) {
+  float length_a = steps_a * step_length;
+  float length_b = steps_b * step_length;
   float s = 0.5 * (length_a + length_b + motor_distance);
-  float y = (2.0 / motor_distance) * sqrt(s*(s-a)*(s-b)*(s-motor_distance));
-  float x = sqrt(sq(a)+sq(y));
+  float y = (2.0 / motor_distance) * sqrt(s*(s-length_a)*(s-length_b)*(s-motor_distance));
+  float x = sqrt(sq(length_a)-sq(y));
   return (Point){x,y};
 }
 
 void save_img_offset() {
   img_offset = abToPoint(current_a, current_b, motor_distance);
+  Serial.println((String)"img offset saved"+img_offset.x+", "+img_offset.y);
 }
 
 bool moveTo(
@@ -212,14 +223,14 @@ bool moveTo(
 ) {
   Direction dir_a = target_a < current_a ? BACKWARD : FORWARD;
   Direction dir_b = target_b < current_b ? BACKWARD : FORWARD;
-  unsigned int step_count_a = target_a - current_a;
-  unsigned int step_count_b = target_b - current_b;
+  long step_count_a = target_a - current_a;
+  long step_count_b = target_b - current_b;
 
   //update the current position of the pen
   current_a += step_count_a;
   current_b += step_count_b;
 
-  // drop the information of direction
+  //drop direction information
   step_count_a = abs(step_count_a);
   step_count_b = abs(step_count_b);
 
@@ -248,6 +259,8 @@ bool moveTo(
       step_count_b -= num_steps_b;
       // save state to eeprom
     }
+    Serial.println((String)"moveTo:"+step_count_a+", "+step_count_b);
+    Serial.println((String)"moveTo:"+num_steps_a+", "+num_steps_b);
   } while (step_count_a > 0 || step_count_b > 0);
   return true;
 }
@@ -256,107 +269,176 @@ bool moveTo(
   float x, 
   float y
 ) {
-  float target_a = sqrt(sq(x)+sq(y)); //calc dist from p_next to motor_l
-  float target_b = sqrt(sq(motor_distance-getImg(point_index, false))+sq(getImg(point_index,true))); //calc dist from p_next to motor_r
-  return moveTo(target_a / step_length, target_b / step_length);
+  float target_a = sqrt(sq(x)+sq(y)) / step_length;
+  float target_b = sqrt(sq(motor_distance-x)+sq(y)) / step_length;
+  return moveTo((unsigned int)target_a, (unsigned int)target_b);
+}
+
+void handle_READY() {
+  if (irrecv.decode(&results))
+  {
+    Serial.println(results.value, HEX);
+    switch (results.value)
+    {
+      case R1_Play: current_state = DRAW; break;
+      case R1_Enter: save_img_offset(); break;
+      case R1_Setup: calibrate(); break;
+      case R1_Stop:  moveTo(origin.x, origin.y); break;
+      case R1_VolPlus:  controlPen(UP); break;
+      case R1_VolMinus: controlPen(DOWN); break;
+      case R1_Right: current_state = MOVER; break;
+      case R1_Left:  current_state = MOVEL; break;
+      case R1_Up:    current_state = MOVEU; break;
+      case R1_Down:  current_state = MOVED; break;
+      case R1_Prev:  current_state = MOTOR_LB; break;
+      case R1_TuneL: current_state = MOTOR_LF; break;
+      case R1_TuneR: current_state = MOTOR_RF; break;
+      case R1_Next:  current_state = MOTOR_RB; break;
+
+      default: break;
+    }
+    irrecv.resume();
+  }
+}
+
+void handle_MOTOR_LB() {
+  if (controlLeftMotor(BACKWARD, 1)) {
+    current_a--;
+  }
+  delay(step_delay);
+  if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
+  {
+    irrecv.resume(); //consume
+  } else {
+    current_state = READY;
+  }
+}
+
+void handle_MOTOR_LF() {
+  if (controlLeftMotor(FORWARD, 1)) {
+    current_a++;
+  }
+  delay(step_delay);
+  if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
+  {
+    irrecv.resume(); //consume
+  } else {
+    current_state = READY;
+  }
+}
+
+void handle_MOTOR_RB() {
+  if (controlRightMotor(BACKWARD, 1)) {
+    current_b--;
+  }
+  delay(step_delay);
+  if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
+  {
+    irrecv.resume(); //consume
+  } else {
+    current_state = READY;
+  }
+}
+
+void handle_MOTOR_RF() {
+  if (controlRightMotor(FORWARD, 1)) {
+    current_b++;
+  }
+  delay(step_delay);
+  if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
+  {
+    irrecv.resume(); //consume
+  } else {
+    current_state = READY;
+  }
+}
+
+void handle_MOVER() {
+  Point current_position = abToPoint(current_a, current_b, motor_distance);
+  moveTo(current_position.x+5, current_position.y);
+  if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
+  {
+    irrecv.resume(); //consume
+  } else {
+    current_state = READY;
+  }
+}
+
+void handle_MOVEL() {
+  Point current_position = abToPoint(current_a, current_b, motor_distance);
+  moveTo(current_position.x-5, current_position.y);
+  if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
+  {
+    irrecv.resume(); //consume
+  } else {
+    current_state = READY;
+  }
+}
+
+void handle_MOVEU() {
+  Point current_position = abToPoint(current_a, current_b, motor_distance);
+  moveTo(current_position.x, current_position.y-5);
+  if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
+  {
+    irrecv.resume(); //consume
+  } else {
+    current_state = READY;
+  }
+}
+
+void handle_MOVED() {
+  Point current_position = abToPoint(current_a, current_b, motor_distance);
+  moveTo(current_position.x, current_position.y+5);
+  if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
+  {
+    irrecv.resume(); //consume
+  } else {
+    current_state = READY;
+  }
+}
+
+void handle_DRAW() {
+  if (irrecv.decode(&results)) 
+  {
+    switch (results.value)
+    {
+      case R1_Pause: 
+        current_state = READY;
+        return;
+      default: break;
+    }
+    irrecv.resume(); //consume
+  }
+  if (point_index >= POINT_COUNT) {
+    Serial.println("Finish");
+    current_state = READY;
+    point_index = 0;
+    return;
+  }
+  pen_updown = !pen_updown;
+  if (controlPen((PenPosition)pen_updown)) {
+    Serial.println("Pen success");
+  } else {
+    Serial.println("Pen Failure");
+  }
+
+  moveTo(getImg(point_index, false), getImg(point_index, true));
+  point_index++;
 }
 
 void loop() {
   switch (current_state)
   {
-    case READY:
-      if (irrecv.decode(&results))
-      {
-        Serial.println(results.value, HEX);
-        switch (results.value)
-        {
-          case R1_Play: current_state = DRAW; break;
-          case R1_Enter: save_img_offset(); break;
-          case R1_VolPlus: controlPen(UP); break;
-          case R1_VolMinus: controlPen(DOWN); break;
-          case R1_Right: break;
-          case R1_Left:  break;
-          case R1_Up:    break;
-          case R1_Down:  break;
-          case R1_Prev: current_state = MOTOR_LB; break;
-          case R1_TuneL: current_state = MOTOR_LF; break;
-          case R1_TuneR: current_state = MOTOR_RF; break;
-          case R1_Next: current_state = MOTOR_RB; break;
-          default: break;
-        }
-        irrecv.resume();
-      }
-      break;
-    case MOTOR_LB: 
-      controlLeftMotor(BACKWARD, 1);
-      delay(step_delay);
-      if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
-      {
-        irrecv.resume(); //consume
-      } else {
-        current_state = READY;
-      }
-      break;
-    case MOTOR_LF: 
-      controlLeftMotor(FORWARD, 1);
-      delay(step_delay);
-      if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
-      {
-        irrecv.resume(); //consume
-      } else {
-        current_state = READY;
-      }
-      break;
-    case MOTOR_RF:
-      if (controlRightMotor(FORWARD, 1)) {
-        current_b++;
-      }
-      delay(step_delay);
-      if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
-      {
-        irrecv.resume(); //consume
-      } else {
-        current_state = READY;
-      }
-      break;
-    case MOTOR_RB:  
-      if (controlRightMotor(BACKWARD, 1)) {
-        current_b--;
-      }
-      delay(step_delay);
-      if (irrecv.decode(&results) && results.value == 0xFFFFFFFF)
-      {
-        irrecv.resume(); //consume
-      } else {
-        current_state = READY;
-      }
-      break;
-    case DRAW:
-      switch (results.value)
-      {
-        case R1_Pause: 
-          current_state = READY;
-          irrecv.resume(); //consume
-          break;
-        default:
-          irrecv.resume(); //consume
-          break;
-      }
-      if (point_index >= POINT_COUNT) {
-        Serial.println("Finish");
-        current_state = READY;
-      }
-      pen_updown = !pen_updown;
-      if (controlPen((PenPosition)pen_updown)) {
-        Serial.println("Pen success");
-      } else {
-        Serial.println("Pen Failure");
-      }
-
-      moveTo(getImg(point_index, false), getImg(point_index, true));
-      point_index++;
-      break;
-    default:
-      break;
+    case READY: handle_READY(); break;
+    case DRAW: handle_DRAW(); break;
+    case MOTOR_LB: handle_MOTOR_LB(); break;
+    case MOTOR_LF: handle_MOTOR_LF(); break;
+    case MOTOR_RF: handle_MOTOR_RF(); break;
+    case MOTOR_RB: handle_MOTOR_RB(); break;
+    case MOVER: handle_MOVER(); break;
+    case MOVEL: handle_MOVEL(); break;
+    case MOVEU: handle_MOVEU(); break;
+    case MOVED: handle_MOVED(); break;
+    default: break;
   }
 }
