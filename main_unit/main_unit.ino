@@ -52,6 +52,7 @@ void setup() {
   
   radio.begin();
   radio.setPALevel(RF24_PA_LOW);
+  radio.setRetries(15, 15);
   radio.openReadingPipe(1,addresses[0]);
   radio.startListening();
 
@@ -89,7 +90,10 @@ bool sendMessage(AddrIndex addr, unsigned int wait_millis=0, byte num_retry = 2)
     if (!radio.write( &msg_data, sizeof(msg_data) )){
       Serial.print("Send failed ");
       Serial.println(nonce);
+      continue;
     }
+    nonce++;
+    return true;
 
     radio.startListening();
     

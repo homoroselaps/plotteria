@@ -10,9 +10,8 @@ int numberOfSteps = 200;
 const float step_length = 40.0 / numberOfSteps; // the distance a step increases the string in mm
 
 struct Message {
-  byte nonce;
-  bool direction;
-  unsigned int value;
+  unsigned long value;
+  unsigned long code;
 };
 
 struct Point {
