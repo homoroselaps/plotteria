@@ -1,12 +1,13 @@
 
 const unsigned int step_delay = 100;
 
-byte addresses[][6] = {"Unit1","Unit2", "Unit3"};
-enum AddrIndex : byte { MAIN_UNIT = 0, RIGHT_UNIT = 1, PEN_UNIT = 2};
+uint64_t addresses[4] = { 0xF0F0F0F0E1, 0xF0F0F0F0D2, 0xF0F0F0F0C3, 0xF0F0F0F0B4 };
+enum AddrIndex : byte { MAIN_UNIT = 0, LEFT_UNIT = 1, RIGHT_UNIT = 2, PEN_UNIT = 3 };
+enum Command : byte { BACKWARD_DIRECT = 0, FORWARD_DIRECT = 1, BACKWARD_PARALLEL = 2, FORWARD_PARALLEL = 3, START_PARALLEL = 4 };
 enum Direction : bool { FORWARD = true, BACKWARD = false};
 enum PenPosition : bool { DOWN = true, UP = false};
 
-int numberOfSteps = 200;
+int numberOfSteps = 3200;
 const float step_length = 40.0 / numberOfSteps; // the distance a step increases the string in mm
 
 struct Message {
