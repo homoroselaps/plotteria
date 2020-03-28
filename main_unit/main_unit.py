@@ -294,10 +294,6 @@ def setup():
     radio.payloadSize = 16
     radio.printDetails()           # Dump the configuration of the rf unit for debugging
 
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(dir_gpio_pin, GPIO.OUT)
-    GPIO.setup(step_gpio_pin, GPIO.OUT)
-
     # initialize a/current_b by calibration
     calibrate()
 

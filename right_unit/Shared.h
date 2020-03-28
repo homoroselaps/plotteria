@@ -1,5 +1,5 @@
 
-const unsigned int step_delay = 100;
+const unsigned int step_delay = 10;
 
 uint64_t addresses[4] = { 0xF0F0F0F0E1, 0xF0F0F0F0D2, 0xF0F0F0F0C3, 0xF0F0F0F0B4 };
 enum AddrIndex : byte { MAIN_UNIT = 0, LEFT_UNIT = 1, RIGHT_UNIT = 2, PEN_UNIT = 3 };

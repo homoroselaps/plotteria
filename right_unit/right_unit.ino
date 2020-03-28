@@ -10,7 +10,7 @@
 #include "Shared.h"
 #include <TMC2208Stepper.h>
 
-#define IS_RIGHT_UNIT true
+//#define IS_RIGHT_UNIT
 #define STEP_PIN 5
 #define DIR_PIN 6
 #define EN_PIN 4
@@ -23,6 +23,7 @@ TMC2208Stepper driver = TMC2208Stepper(&Serial);
 
 unsigned long parallel_step_count = 0;
 unsigned long total_steps = 0;
+const unsigned long MICROSTEPS = pow(2, MRES);
 
 Message msg_data;
 
@@ -45,14 +46,13 @@ void setup() {
   radio.enableAckPayload();
   radio.setRetries(0, 15);
   radio.setPayloadSize(16);
-  driver.shaft(false);
+  //radio.printDetails();
 
   radio.openWritingPipe(addresses[MAIN_UNIT]);
   #ifdef IS_RIGHT_UNIT
     radio.openReadingPipe(1, addresses[RIGHT_UNIT]);
   #else
     radio.openReadingPipe(1, addresses[LEFT_UNIT]);
-    
   #endif
   radio.startListening();
 
@@ -74,11 +74,11 @@ void setup() {
 }
 
 void controlMotor(unsigned long step_count, unsigned long sleep) {
-  for (unsigned long x = 1; x <= step_count*pow(2, MRES); x++) {
+  for (unsigned long x = 1; x <= step_count*MICROSTEPS; x++) {
     digitalWrite(STEP_PIN, HIGH);
     digitalWrite(STEP_PIN, LOW);
     delay(sleep);
-    if (x % 5 == 0) Serial.print(".");
+    if (x % (5*MICROSTEPS) == 0) Serial.print(".");
   }
   Serial.println("");
 }
