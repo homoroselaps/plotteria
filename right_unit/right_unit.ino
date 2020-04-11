@@ -1,20 +1,15 @@
 
-/*
-* Getting Started example sketch for nRF24L01+ radios
-* This is an example of how to send data from one node to another using data structures
-* Updated: Dec 2014 by TMRh20
-*/
-
 #include <SPI.h>
 #include "RF24.h"
 #include "Shared.h"
 #include <TMC2208Stepper.h>
 
+//#define DEBUG true
+
 #define STEP_PIN 5
 #define DIR_PIN 6
 #define EN_PIN 4
 #define UNIT_PIN A0
-#define MRES 5
 
 /* Hardware configuration: Set up nRF24L01 radio on SPI bus plus pins*/
 RF24 radio(10,9);
@@ -23,7 +18,6 @@ TMC2208Stepper driver = TMC2208Stepper(&Serial);
 
 unsigned long parallel_step_count = 0;
 unsigned long total_steps = 0;
-const unsigned long MICROSTEPS = pow(2, MRES);
 
 Message msg_data;
 bool is_right_unit = false;
@@ -71,47 +65,50 @@ void setup() {
 	driver.rms_current(500);			 // Set driver current 500mA
   driver.intpol(true);           // enable x256 interpolation
   driver.shaft(false);
-  driver.mres(MRES);             // set 1/2^4 microstepping
-	driver.toff(0x2);							 // Enable driver
+  driver.mstep_reg_select(1);     // configure microsteps via register
+  driver.microsteps(MICROSTEPS);  // set microstepping
+	driver.toff(0x2);							  // Enable driver
 
   digitalWrite(EN_PIN, LOW); //Enable driver
 }
 
 void controlMotor(unsigned long step_count, unsigned long sleep) {
-  for (unsigned long x = 1; x <= step_count*MICROSTEPS; x++) {
+  for (unsigned long x = 1; x <= step_count; x++) {
     digitalWrite(STEP_PIN, HIGH);
     digitalWrite(STEP_PIN, LOW);
-    delay(sleep);
-    if (x % (5*MICROSTEPS) == 0) Serial.print(".");
+    delayMicroseconds(sleep);
+    #ifdef DEBUG
+      if (!(x%10)) Serial.print(".");
+    #endif
   }
-  Serial.println("");
+  #ifdef DEBUG
+    Serial.println("");
+  #endif
 }
 
 void setDirection(Direction dir) {
-  if (dir == BACKWARD) {
-    driver.shaft(true);
-  } else {
-    driver.shaft(false);
-  }
+  driver.shaft(dir == BACKWARD);
 }
 
 void loop() {
   if( radio.available()){
     radio.read( &msg_data, sizeof(msg_data) );
 
-    Serial.println("Received: ");
-    Serial.println(msg_data.value);
-    Serial.println(msg_data.code);
+    #ifdef DEBUG
+      Serial.println("Received: ");
+      Serial.println(msg_data.value);
+      Serial.println(msg_data.code);
+    #endif
 
     switch (msg_data.code)
     {
     case BACKWARD_DIRECT:
       setDirection(BACKWARD);
-      controlMotor(msg_data.value, step_delay);
+      controlMotor(msg_data.value, STEP_DELAY_US);
       break;
     case FORWARD_DIRECT:
       setDirection(FORWARD);
-      controlMotor(msg_data.value, step_delay);
+      controlMotor(msg_data.value, STEP_DELAY_US);
       break;
     case BACKWARD_PARALLEL:
       setDirection(BACKWARD);
@@ -123,15 +120,13 @@ void loop() {
       break;
     case START_PARALLEL:
       total_steps = msg_data.value;
-      controlMotor(parallel_step_count, total_steps / parallel_step_count * step_delay);
+      controlMotor(parallel_step_count, total_steps / parallel_step_count * STEP_DELAY_US);
       break;
     default:
-      Serial.println("Invalid Command");
+      #ifdef DEBUG
+        Serial.println("Invalid Command");
+      #endif
       break;
     }
-
-    //Serial.print(F("Sent response "));
-    //Serial.print(F(" : "));
-    //Serial.println(myData.value);
   }
 }

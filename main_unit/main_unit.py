@@ -227,11 +227,13 @@ def readFloat(text, default_value):
   except ValueError:
     return default_value
 
-
+MICROSTEPS = 16
 # Steps Per Revolution
-SPR = 3200
+SPR = 200 * MICROSTEPS
 # Step length, the distance a step increases the string in mm
 step_length = 40.0 / SPR
+# microseconds delay between each step
+STEP_DELAY_US = 100
 # seconds delay between each step
 step_delay = 100/1000/1000
 

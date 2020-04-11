@@ -1,10 +1,3 @@
-
-/*
-* Getting Started example sketch for nRF24L01+ radios
-* This is an example of how to send data from one node to another using data structures
-* Updated: Dec 2014 by TMRh20
-*/
-
 #include <Servo.h>
 #include <SPI.h>
 #include "RF24.h"
