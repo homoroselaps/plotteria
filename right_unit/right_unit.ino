@@ -10,11 +10,11 @@
 #include "Shared.h"
 #include <TMC2208Stepper.h>
 
-//#define IS_RIGHT_UNIT
 #define STEP_PIN 5
 #define DIR_PIN 6
 #define EN_PIN 4
-#define MRES 4
+#define UNIT_PIN A0
+#define MRES 5
 
 /* Hardware configuration: Set up nRF24L01 radio on SPI bus plus pins*/
 RF24 radio(10,9);
@@ -26,17 +26,21 @@ unsigned long total_steps = 0;
 const unsigned long MICROSTEPS = pow(2, MRES);
 
 Message msg_data;
+bool is_right_unit = false;
 
 void setup() {
 
   Serial.begin(115200);
   while(!Serial);
+  
+  pinMode(UNIT_PIN, INPUT);
+  is_right_unit = digitalRead(UNIT_PIN);
 
-  #ifdef IS_RIGHT_UNIT
-    Serial.println(F("Right Unit"));
-  #else
+  if (is_right_unit) {
+    Serial.println(F("Right Unit")); 
+  } else {
     Serial.println(F("Left Unit"));
-  #endif
+  }
 
   //Setup Radio module
   
@@ -49,11 +53,11 @@ void setup() {
   //radio.printDetails();
 
   radio.openWritingPipe(addresses[MAIN_UNIT]);
-  #ifdef IS_RIGHT_UNIT
+  if (is_right_unit) {
     radio.openReadingPipe(1, addresses[RIGHT_UNIT]);
-  #else
+  } else {
     radio.openReadingPipe(1, addresses[LEFT_UNIT]);
-  #endif
+  }
   radio.startListening();
 
   //Setup Driver module
