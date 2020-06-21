@@ -1,0 +1,110 @@
+automatic calibration algorithm
+
+startup code
+
+def readBeltMark() {
+    turn LED off
+    b1 = read brightness value
+    turn LED on
+    b2 = read brightness value
+    return b2-b1 > threshold ? 1 : -1
+}
+
+if (readBeltMark() > 0) {
+  //go forward beginning of the white area
+}
+else {
+  //go backwards until you reach a white area
+}
+
+// go backwards/outwards until calibration successful
+max_buffer_length = 8
+buffer = [max_buffer_length] //at best a ring buffer
+
+max_error_length = 4 //in steps
+last_streak = 0
+current_streak = 0 // positive numbers > 0 mean white
+steps_taken = 0
+max_steps_taken = 100
+until (steps_taken < max_steps_taken) {
+    steps_taken++
+    step_backwards()
+    current_mark = readBeltMark()
+    // streak continues
+    if (not (current_mark > 0 xor current_streak > 0)) {
+        current_streak += current_mark
+    } else { // streak is broken
+        if (abs(current_streak) <= max_error_length) {
+            current_streak = last_streak - current_streak + current_mark
+            last_streak = 0
+        } else {
+            if (abs(last_streak) > 0) {
+                buffer.add(last_streak)
+                if (calibrate(buffer)) break
+            }
+            last_streak = current_streak
+            current_streak = current_mark
+        }
+    }
+}
+if (steps_taken >= max_steps_taken) {
+    panic()
+}
+
+def patternToPosition(x1, x2, x3) {
+    //magic happens
+    return (position, index)
+}
+
+mark_basis = 10 //the length of the shortest streak and the common divisor of all
+mark_max_error = mark_basis / 10
+upper_mark_error = mark_basis + mark_max_error
+lower_mark_error = mark_basis - mark_max_error
+
+//valid pattern if all marks are a multiple of the mark_basis and black patterns are exactly one mark_basis
+
+def markLength(mark) {
+    remainder = abs(mark) % mark_basis
+    if (remainder < mark_max_error || remainder > lower_mark_error)
+        return (abs(mark) + mark_max_error) / mark_basis
+    return 0
+}
+
+pattern_min_length = 3
+
+def calibrate(marks) {
+    // do this backwards because the cursor is always at the back of the buffer
+    // sum all marks up until the first valid pattern so you know the difference
+
+    // change possible black in first and last spot
+    // good luck with that
+
+    if (marks.size() < pattern_min_length * 2 -1) return false
+    const skip_last_black = (marks.last() > 0 ? 0 : 1)
+    const start_index = (buffer.size()-1) - skip_last_black
+    pattern = int[pattern_min_length];
+    distance = 0
+    for (int index = start_index; index >= (pattern_min_length -1) * 2; index -= 2) {
+        for (int i = 0; i < pattern_min_length; i++) {
+            white_mark = marks[index-i*2]
+            white_mark_length = markLength(white_mark)
+            distance_skipped += abs(white_mark)
+            if (white_mark_length == 0) goto outer;
+            pattern[pattern_min_length-i] = white_mark_length
+
+            if (index-i*2-1 >= 0) {
+                black_mark = marks[index-i*2-1]
+                black_mark_length = markLength(black_mark)
+                distance_skipped += abs(black_mark)
+                if (black_mark_length != 1) goto outer;
+            }
+        }
+        position = patternToPosition(&pattern)
+        if (position > 0)
+            global_position = position
+            return true
+        outer:;
+        distance += abs(marks[index-1]) + abs(marks[index])
+    }
+    return false
+}
