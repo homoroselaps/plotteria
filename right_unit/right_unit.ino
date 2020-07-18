@@ -1,3 +1,4 @@
+#include <CircularBuffer.h>
 
 #include <SPI.h>
 #include "RF24.h"
@@ -11,10 +12,27 @@
 #define EN_PIN 4
 #define UNIT_PIN A0
 
+#define LED_PIN 2
+#define BRIGHT_PIN A6
+
+#define BRIGHT_THRESHOLD 100
+#define MAX_BUFFER_LENGTH 8
+#define SAFETY_MAX_STEP_COUNT ((long)(step_length * 100))
+#define MARK_BASIS ((long)(step_length * 15)) //the length of the shortest streak and the common divisor of all
+#define MARK_MAX_ERROR (MARK_BASIS / 10) // 10% as error margin for mark length
+#define UPPER_MARK_ERROR (MARK_BASIS + MARK_MAX_ERROR)
+#define LOWER_MARK_ERROR (MARK_BASIS - MARK_MAX_ERROR)
+#define MAX_ERROR_LENGTH (MARK_BASIS / 100) // 1% as error margin to prevent incorrect brightness readings
+#define PATTERN_LENGTH 3 // the number of white marks that resamble a pattern
+
+enum MarkColor : char { WHITE = 1, BLACK = -1};
+
 /* Hardware configuration: Set up nRF24L01 radio on SPI bus plus pins*/
 RF24 radio(10,9);
 
 TMC2208Stepper driver = TMC2208Stepper(&Serial);	
+
+CircularBuffer<long, MAX_BUFFER_LENGTH> buffer;
 
 unsigned long parallel_step_count = 0;
 unsigned long total_steps = 0;
@@ -70,6 +88,101 @@ void setup() {
 	driver.toff(0x2);							  // Enable driver
 
   digitalWrite(EN_PIN, LOW); //Enable driver
+}
+
+MarkColor readBeltMark() {
+  digitalWrite(LED_PIN, LOW);
+  int b1 = analogRead(BRIGHT_PIN);
+  digitalWrite(LED_PIN, HIGH);
+  int b2 = analogRead(BRIGHT_PIN);
+  return b2-b1 > BRIGHT_THRESHOLD ? WHITE : BLACK;
+}
+
+void runCalibration() {
+  //move to the start of the nearest white area 
+  setDirection(FORWARD);
+  while (readBeltMark() == WHITE) {
+    controlMotor(100, STEP_DELAY_US);
+  }
+  setDirection(BACKWARD);
+  while (readBeltMark() == BLACK) {
+    controlMotor(100, STEP_DELAY_US);
+  }
+
+  long last_streak = 0;
+  long current_streak = 0; // positive numbers > 0 mean white
+  long steps_taken = 0;
+  while (steps_taken < SAFETY_MAX_STEP_COUNT) {
+    steps_taken++;
+    setDirection(BACKWARD);
+    controlMotor(100, STEP_DELAY_US);
+    MarkColor current_mark = readBeltMark();
+    // streak continues
+    if (!(current_mark > 0 ^ current_streak > 0)) {
+      current_streak += current_mark;
+    } else { // streak is broken
+      if (abs(current_streak) <= MAX_ERROR_LENGTH) {
+        current_streak = last_streak - current_streak + current_mark;
+        last_streak = 0;
+      } else {
+        if (abs(last_streak) > 0) {
+          buffer.push(last_streak);
+          if (calibrate()) break;
+        }
+        last_streak = current_streak;
+        current_streak = current_mark;
+      }
+    }
+  }
+  if (steps_taken >= SAFETY_MAX_STEP_COUNT) {
+    exit(1);
+  }
+}
+
+long markLength(long mark) {
+  long remainder = abs(mark) % MARK_BASIS;
+  if (remainder < MARK_MAX_ERROR || remainder > LOWER_MARK_ERROR)
+      return (abs(mark) + MARK_MAX_ERROR) / MARK_BASIS;
+  return 0;
+}
+
+long patternToPosition(long pattern[PATTERN_LENGTH]) {
+  return 42;
+}
+
+bool calibrate() {
+  //valid pattern if all marks are a multiple of the mark_basis and black patterns are exactly one mark_basis
+  //sum all marks up until the first valid pattern so you know the difference
+
+  //change possible black in first and last spot
+  //good luck with that
+
+  if (buffer.size() < PATTERN_LENGTH * 2 -1) return false;
+  const bool skip_last_black = buffer.last() < 0;
+  const unsigned char start_index = (buffer.size()-1) - (char)skip_last_black;
+  long pattern[PATTERN_LENGTH];
+  long distance = 0;
+  for (int index = start_index; index >= (PATTERN_LENGTH -1) * 2; index -= 2) {
+    for (int i = 0; i < PATTERN_LENGTH; i++) {
+      long white_mark = buffer[index-i*2];
+      unsigned long white_mark_length = markLength(white_mark);
+      if (white_mark_length == 0) goto outer;
+      pattern[PATTERN_LENGTH-i] = white_mark_length;
+
+      if (index-i*2-1 >= 0) {
+        long black_mark = buffer[index-i*2-1];
+        unsigned long black_mark_length = markLength(black_mark);
+        if (black_mark_length != 1) goto outer;
+      }
+    }
+    unsigned long position = patternToPosition(pattern);
+    if (position > 0)
+      //global_position = position + distance;
+      return true;
+    outer:;
+    distance += abs(buffer[index-1]) + abs(buffer[index]);
+  }
+  return false;
 }
 
 void controlMotor(unsigned long step_count, unsigned long sleep) {
