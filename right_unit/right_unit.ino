@@ -20,7 +20,7 @@
 #define SAFETY_MAX_STEP_COUNT ((long)(step_length * 100))
 #define MARK_BASIS ((long)(step_length * 15)) //the length of the shortest streak and the common divisor of all
 #define MARK_MAX_ERROR (MARK_BASIS / 10) // 10% as error margin for mark length
-#define UPPER_MARK_ERROR (MARK_BASIS + MARK_MAX_ERROR)
+//#define UPPER_MARK_ERROR (MARK_BASIS + MARK_MAX_ERROR)
 #define LOWER_MARK_ERROR (MARK_BASIS - MARK_MAX_ERROR)
 #define MAX_ERROR_LENGTH (MARK_BASIS / 100) // 1% as error margin to prevent incorrect brightness readings
 #define PATTERN_LENGTH 3 // the number of white marks that resamble a pattern
@@ -114,7 +114,7 @@ void runCalibration() {
   long steps_taken = 0;
   while (steps_taken < SAFETY_MAX_STEP_COUNT) {
     steps_taken++;
-    setDirection(BACKWARD);
+    setDirection(FORWARD);
     controlMotor(100, STEP_DELAY_US);
     MarkColor current_mark = readBeltMark();
     // streak continues
@@ -126,7 +126,7 @@ void runCalibration() {
         last_streak = 0;
       } else {
         if (abs(last_streak) > 0) {
-          buffer.push(last_streak);
+          buffer.unshift(last_streak); // add to the front
           if (calibrate()) break;
         }
         last_streak = current_streak;
@@ -140,7 +140,7 @@ void runCalibration() {
 }
 
 long markLength(long mark) {
-  long remainder = abs(mark) % MARK_BASIS;
+  const long remainder = abs(mark) % MARK_BASIS;
   if (remainder < MARK_MAX_ERROR || remainder > LOWER_MARK_ERROR)
       return (abs(mark) + MARK_MAX_ERROR) / MARK_BASIS;
   return 0;
@@ -153,34 +153,34 @@ long patternToPosition(long pattern[PATTERN_LENGTH]) {
 bool calibrate() {
   //valid pattern if all marks are a multiple of the mark_basis and black patterns are exactly one mark_basis
   //sum all marks up until the first valid pattern so you know the difference
-
-  //change possible black in first and last spot
-  //good luck with that
-
-  if (buffer.size() < PATTERN_LENGTH * 2 -1) return false;
-  const bool skip_last_black = buffer.last() < 0;
-  const unsigned char start_index = (buffer.size()-1) - (char)skip_last_black;
+  
+  const bool is_last_black = buffer.last() < 0;
+  const bool is_first_black = buffer.first() < 0;
+  if (buffer.size() -(char)is_last_black -(char)is_first_black < PATTERN_LENGTH * 2 -1) return false;
+  
   long pattern[PATTERN_LENGTH];
   long distance = 0;
-  for (int index = start_index; index >= (PATTERN_LENGTH -1) * 2; index -= 2) {
+  for (int index = (char)is_first_black; index <= buffer.size() -1 -(( PATTERN_LENGTH -1)*2) -(char)is_last_black; index += 2) {
     for (int i = 0; i < PATTERN_LENGTH; i++) {
-      long white_mark = buffer[index-i*2];
+      // parse the white mark length and save it
+      long white_mark = buffer[index+i*2];
       unsigned long white_mark_length = markLength(white_mark);
       if (white_mark_length == 0) goto outer;
-      pattern[PATTERN_LENGTH-i] = white_mark_length;
+      pattern[i] = white_mark_length;
 
-      if (index-i*2-1 >= 0) {
-        long black_mark = buffer[index-i*2-1];
+      // check that black mark has correct length
+      if (index+i*2+1 < buffer.size()) {
+        long black_mark = buffer[index+i*2+1];
         unsigned long black_mark_length = markLength(black_mark);
         if (black_mark_length != 1) goto outer;
       }
     }
     unsigned long position = patternToPosition(pattern);
     if (position > 0)
-      //global_position = position + distance;
+      //global_position = position + distance
       return true;
     outer:;
-    distance += abs(buffer[index-1]) + abs(buffer[index]);
+    distance += abs(buffer[index+1]) + abs(buffer[index]);
   }
   return false;
 }
