@@ -15,7 +15,7 @@
 #define LED_PIN 2
 #define BRIGHT_PIN A6
 
-#define BRIGHT_THRESHOLD 100
+#define BRIGHT_THRESHOLD 20
 #define MAX_BUFFER_LENGTH 8
 #define SAFETY_MAX_STEP_COUNT ((long)(step_length * 100))
 #define MARK_BASIS ((long)(step_length * 15)) //the length of the shortest streak and the common divisor of all
@@ -72,6 +72,8 @@ void setup() {
   }
   radio.startListening();
 
+  pinMode(LED_PIN, OUTPUT);
+
   //Setup Driver module
 
   pinMode(EN_PIN, OUTPUT);
@@ -92,9 +94,13 @@ void setup() {
 
 MarkColor readBeltMark() {
   digitalWrite(LED_PIN, LOW);
+  delay(10);
   int b1 = analogRead(BRIGHT_PIN);
   digitalWrite(LED_PIN, HIGH);
+  delay(10);
   int b2 = analogRead(BRIGHT_PIN);
+  Serial.println(b1);
+  Serial.println(b2);
   return b2-b1 > BRIGHT_THRESHOLD ? WHITE : BLACK;
 }
 
@@ -204,7 +210,20 @@ void setDirection(Direction dir) {
 }
 
 void loop() {
-  if( radio.available()){
+  digitalWrite(LED_PIN, LOW);
+  delay(100);
+  Serial.println(analogRead(BRIGHT_PIN));
+  delay(100);
+  digitalWrite(LED_PIN, HIGH);
+  delay(100);
+  Serial.println(analogRead(BRIGHT_PIN));
+  delay(1000);
+
+  /*MarkColor color = readBeltMark();
+  Serial.println(color);
+  delay(500);*/
+
+/*  if( radio.available()){
     radio.read( &msg_data, sizeof(msg_data) );
 
     #ifdef DEBUG
@@ -241,5 +260,55 @@ void loop() {
       #endif
       break;
     }
+  }*/
+}
+
+
+/*
+
+GOAL
+- measure distance from lower turning point to higher turning point
+- while moving forward save each difference between Light off and Light on
+each cell in the array refers to one motor step
+save the start step count for the 0 array position
+HOW TO
+- color = false 'black'
+- iterate over all values in the array
+brightness_current, brightness_last = NaN
+color = BLACK
+step_start, step_end = NaN
+value_step_start = NaN
+step_current_rel = 0
+while (max_calibration_length not reached) {
+  brightness_current_change = (value_last-value_current) / distance_traveled // the higher the brighter aka the lower analogValue
+  if (step1 == NaN && current_brightness_change*(color==BLACK?1:-1) < MIN_BRIGHTNESS_CHANGE) {
+      step_start = step_current
+      value_step_start = value_current
+  }
+  if (step_start != NaN && abs(value_step_start-value_current) < MIN_BRIGHTNESS_CHANGE) {
+    // reset step_start
+    step_start = NaN
+    step_end = NaN
+    
+    // change color as we moved forward
+    color = (color==BlACK ? WHITE : BLACK)
+  }
+  if (step_start != NaN && current_brightness_change*(color==BLACK?1:-1) > MIN_BRIGHTNESS_CHANGE) {
+    //register the found mark
+    register_mark(step_start-step_end, color)
+    
+    //start next mark at current's end
+    step_start = step_end
+    value_step_start = value_current
+    color = (color==BlACK ? WHITE : BLACK)
   }
 }
+- save the first step index S1 for which the diff to its direct neighbor S1+1 is (color?negative:positive) and surpasses threshold T1
+- if (diff(last_step, current_step) is (color?positive:negative) and the diff surpasses threshold T1
+- reset S1/S2 if current step diff to S1 is lower T1
+
+# this threshold can be smaller the harder the cliff is
+- save S1-S2 as a mark of color (color?white:black)
+- toggle color to detect next mark
+
+*/
