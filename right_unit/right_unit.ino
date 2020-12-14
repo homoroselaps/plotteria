@@ -17,8 +17,8 @@
 
 #define BRIGHT_THRESHOLD 20
 #define MAX_BUFFER_LENGTH 8
-#define SAFETY_MAX_STEP_COUNT ((long)(5 * numberOfSteps))
-#define MARK_BASIS ((long)(step_length * MICROSTEPS * 50)) //the length of the shortest streak and the common divisor of all, 50=10mm
+#define SAFETY_MAX_STEP_COUNT ((long)(step_length * 100))
+#define MARK_BASIS ((long)(step_length * 15)) //the length of the shortest streak and the common divisor of all
 #define MARK_MAX_ERROR (MARK_BASIS / 10) // 10% as error margin for mark length
 //#define UPPER_MARK_ERROR (MARK_BASIS + MARK_MAX_ERROR)
 #define LOWER_MARK_ERROR (MARK_BASIS - MARK_MAX_ERROR)
@@ -33,7 +33,6 @@ RF24 radio(10,9);
 TMC2208Stepper driver = TMC2208Stepper(&Serial);	
 
 CircularBuffer<long, MAX_BUFFER_LENGTH> buffer;
-long step_buffer_start_rel = 0;
 
 unsigned long parallel_step_count = 0;
 unsigned long total_steps = 0;
@@ -93,117 +92,55 @@ void setup() {
   digitalWrite(EN_PIN, LOW); //Enable driver
 }
 
-int readBrightnessValue() {
+MarkColor readBeltMark() {
   digitalWrite(LED_PIN, LOW);
   delay(10);
-  int b1 = analogRead(BRIGHT_PIN); // higher values are darker, lower values are brighter
+  int b1 = analogRead(BRIGHT_PIN);
   digitalWrite(LED_PIN, HIGH);
   delay(10);
   int b2 = analogRead(BRIGHT_PIN);
-  return b1-b2; // higher values are brighter
+  Serial.println(b1);
+  Serial.println(b2);
+  return b2-b1 > BRIGHT_THRESHOLD ? WHITE : BLACK;
 }
 
 void runCalibration() {
-  long step_start, step_end, step_cursor = 0; //step_cursor is used for step_start and step_end
-  int value_last, value_current, value_start, value_end = 0;
-  int brightness_current, brightness_last = -1;
-  //long current_streak = 0; // positive numbers > 0 mean white
-  long step_current_rel = 0;
-  MarkColor color_to_find = BLACK;
-  #define STEPS_PER_READ 320 //20*16
-  #define MIN_BRIGHTNESS_CHANGE 100
+  //move to the start of the nearest white area 
+  setDirection(FORWARD);
+  while (readBeltMark() == WHITE) {
+    controlMotor(100, STEP_DELAY_US);
+  }
+  setDirection(BACKWARD);
+  while (readBeltMark() == BLACK) {
+    controlMotor(100, STEP_DELAY_US);
+  }
 
-  step_cursor = 0;
-  step_buffer_start_rel = 0;
-  value_start = readBrightnessValue();
-
-  while (step_current_rel < SAFETY_MAX_STEP_COUNT) {
+  long last_streak = 0;
+  long current_streak = 0; // positive numbers > 0 mean white
+  long steps_taken = 0;
+  while (steps_taken < SAFETY_MAX_STEP_COUNT) {
+    steps_taken++;
     setDirection(FORWARD);
-    controlMotor(STEPS_PER_READ, STEP_DELAY_US);
-    step_current_rel += STEPS_PER_READ;
-    value_last = value_current;
-    value_current = readBrightnessValue();
-    int brightness_change_current = (value_current - value_last);
-    if (brightness_change_current == 0) continue;
-
-    //find first black stronge diff
-    if (step_cursor <= 0) {
-      if (-brightness_change_current >= MIN_BRIGHTNESS_CHANGE) {
-          step_start = step_current_rel;
-          step_cursor = step_current_rel;
-          Serial.println("first found");
-      }
-    }
-    
-    // no mark start found yet
-    if (step_start <= 0) {
-      // if change has correct sign
-      if ((color_to_find==BLACK && brightness_change_current < 0) || (color_to_find==WHITE && brightness_change_current > 0)) {
-        // if change is big enough save it as mark's start
-        if (abs(value_current-value_start) >= MIN_BRIGHTNESS_CHANGE) {
-          step_start = step_cursor;
-          step_cursor = 0;
-          Serial.println("start found");
-        }
+    controlMotor(100, STEP_DELAY_US);
+    MarkColor current_mark = readBeltMark();
+    // streak continues
+    if (!(current_mark > 0 ^ current_streak > 0)) {
+      current_streak += current_mark;
+    } else { // streak is broken
+      if (abs(current_streak) <= MAX_ERROR_LENGTH) {
+        current_streak = last_streak - current_streak + current_mark;
+        last_streak = 0;
       } else {
-        // if we are searching white then give the distance to the previous black part
-        //step_cursor = 0; break break // can't do this as there must be no gaps in the buffer. you have to clear buffer here !!!
-        value_start = 0;
-        Serial.println("start flux");
-      }
-    }
-    
-    //Found a mark start, no end and total change is too small
-    if (step_start > 0 && step_end <= 0 && abs(value_start-value_current) < MIN_BRIGHTNESS_CHANGE) {
-      buffer.clear(); // clear the buffer as we read a 
-      step_cursor = step_current_rel;
-      step_buffer_start_rel = step_current_rel;
-      step_start = 0;
-      step_end = 0;
-      value_start = 0;
-      value_end = 0;
-      
-      color_to_find = (color_to_find==WHITE?BLACK:WHITE);
-      Serial.println("Detected bullshit-buffer reset");
-    }
-
-    //found mark start, find mark end
-    if (step_start > 0) {
-      // if change has correct sign
-      if ((color_to_find==BLACK && brightness_change_current > 0) || (color_to_find==WHITE && brightness_change_current < 0)) {
-        //first time
-        if (step_cursor <= 0) {
-          step_cursor = step_current_rel;
-          value_end = value_current;
-          Serial.println("end first");
+        if (abs(last_streak) > 0) {
+          buffer.unshift(last_streak); // add to the front
+          if (calibrate()) break;
         }
-        // if change is big enough save it as mark's start
-        if (abs(value_current-value_end) >= MIN_BRIGHTNESS_CHANGE) {
-          step_end = step_cursor;
-          step_cursor = 0;
-          Serial.println("end found");
-        }
-      } else {
-        step_cursor = 0;
-        value_end = 0;
-        Serial.println("end flux");
+        last_streak = current_streak;
+        current_streak = current_mark;
       }
-    }
-    
-    //found start & end
-    if (step_start > 0 && step_end > 0) {
-      Serial.println("mark found:");
-      Serial.println((color_to_find==WHITE?-1:1)*(step_end-step_start));
-      buffer.unshift((color_to_find==WHITE?-1:1)*(step_end-step_start)); // add to the front
-      if (calibrate()) break;
-      step_start = step_end;
-      value_start = value_end;
-      step_cursor = 0;
-      color_to_find = (color_to_find==WHITE?BLACK:WHITE);
     }
   }
-  //shut down unit to prevent harm
-  if (step_current_rel >= SAFETY_MAX_STEP_COUNT) {
+  if (steps_taken >= SAFETY_MAX_STEP_COUNT) {
     exit(1);
   }
 }
@@ -274,14 +211,13 @@ void setDirection(Direction dir) {
 
 void loop() {
   digitalWrite(LED_PIN, LOW);
-  delay(10);
-  int b1 = analogRead(BRIGHT_PIN);
+  delay(100);
+  Serial.println(analogRead(BRIGHT_PIN));
   delay(100);
   digitalWrite(LED_PIN, HIGH);
-  delay(10);
-  int b2 = analogRead(BRIGHT_PIN);
-  Serial.println(b1-b2);
-  delay(500);
+  delay(100);
+  Serial.println(analogRead(BRIGHT_PIN));
+  delay(1000);
 
   /*MarkColor color = readBeltMark();
   Serial.println(color);
@@ -338,17 +274,14 @@ save the start step count for the 0 array position
 HOW TO
 - color = false 'black'
 - iterate over all values in the array
-
 brightness_current, brightness_last = NaN
 color = BLACK
 step_start, step_end = NaN
 value_step_start = NaN
 step_current_rel = 0
-//idea for finer resolution: if brightness change is in the right direction but not steep enough, sum it up until it is
 while (max_calibration_length not reached) {
   brightness_current_change = (value_last-value_current) / distance_traveled // the higher the brighter aka the lower analogValue
-  
-  if (step_start == NaN && current_brightness_change*(color==BLACK?1:-1) < MIN_BRIGHTNESS_CHANGE) {
+  if (step1 == NaN && current_brightness_change*(color==BLACK?1:-1) < MIN_BRIGHTNESS_CHANGE) {
       step_start = step_current
       value_step_start = value_current
   }
@@ -377,10 +310,5 @@ while (max_calibration_length not reached) {
 # this threshold can be smaller the harder the cliff is
 - save S1-S2 as a mark of color (color?white:black)
 - toggle color to detect next mark
-
-# Idea 2
-
-CONST gather_step_count D1 // the distance traveled must include black and white parts
-drive 
 
 */
