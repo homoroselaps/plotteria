@@ -15,10 +15,10 @@
 #define LED_PIN 2
 #define BRIGHT_PIN A6
 
-#define BRIGHT_THRESHOLD 20
+#define BRIGHT_THRESHOLD 675 //(950-400)/2 + 400
 #define MAX_BUFFER_LENGTH 8
-#define SAFETY_MAX_STEP_COUNT ((long)(step_length * 100))
-#define MARK_BASIS ((long)(step_length * 15)) //the length of the shortest streak and the common divisor of all
+#define SAFETY_MAX_STEP_COUNT 10000
+#define MARK_BASIS 800 //the length of the shortest streak and the common divisor of all
 #define MARK_MAX_ERROR (MARK_BASIS / 10) // 10% as error margin for mark length
 //#define UPPER_MARK_ERROR (MARK_BASIS + MARK_MAX_ERROR)
 #define LOWER_MARK_ERROR (MARK_BASIS - MARK_MAX_ERROR)
@@ -36,6 +36,7 @@ CircularBuffer<long, MAX_BUFFER_LENGTH> buffer;
 
 unsigned long parallel_step_count = 0;
 unsigned long total_steps = 0;
+unsigned long steps_taken = 0;
 
 Message msg_data;
 bool is_right_unit = false;
@@ -92,47 +93,83 @@ void setup() {
   digitalWrite(EN_PIN, LOW); //Enable driver
 }
 
-MarkColor readBeltMark() {
+MarkColor readBeltMark2(long steps_taken) {
+  const int mock[22] = {0,-1,2,-4,8,-16,32, -50, 100, -200, 400, -450, 800, -1600, 2400, -3200, 4000, -4800, 5600, -7200, 8000, -9600};
+  MarkColor value = BLACK;
+  for (size_t i = 0; i < 22; i++)
+  {
+    if (steps_taken >= abs(mock[i])) 
+      value = mock[i] < 0 ? BLACK : WHITE;
+  }
+  /*Serial.print(F("readBeltMark: "));
+  Serial.print(steps_taken);
+  Serial.print(F(", "));
+  Serial.println(value);*/
+  delay(5);
+  return value;
+}
+
+MarkColor readBeltMark_() {
   digitalWrite(LED_PIN, LOW);
   delay(10);
-  int b1 = analogRead(BRIGHT_PIN);
+  int b_off = analogRead(BRIGHT_PIN);
   digitalWrite(LED_PIN, HIGH);
   delay(10);
-  int b2 = analogRead(BRIGHT_PIN);
-  Serial.println(b1);
-  Serial.println(b2);
-  return b2-b1 > BRIGHT_THRESHOLD ? WHITE : BLACK;
+  int b_on = analogRead(BRIGHT_PIN);
+  Serial.println(b_off);
+  Serial.println(b_on);
+  return b_on < BRIGHT_THRESHOLD-(1024-b_off) ? WHITE : BLACK;
+}
+
+void printBuffer() {
+  Serial.print("buffer: ");
+  for (int index = 0; index <= buffer.size() -1; index++) {
+    Serial.print(buffer[index]);
+    Serial.print(", ");
+  }
+  Serial.println(" /");
 }
 
 void runCalibration() {
+  buffer.clear();
   //move to the start of the nearest white area 
+  #define STEPS_PER_READ 1
+  Serial.println("move forward");
   setDirection(FORWARD);
-  while (readBeltMark() == WHITE) {
-    controlMotor(100, STEP_DELAY_US);
+  while (readBeltMark2(steps_taken) >= WHITE && steps_taken < SAFETY_MAX_STEP_COUNT) {
+    controlMotor(STEPS_PER_READ, STEP_DELAY_US);
+    steps_taken += STEPS_PER_READ;
   }
+  Serial.println("move backward");
   setDirection(BACKWARD);
-  while (readBeltMark() == BLACK) {
-    controlMotor(100, STEP_DELAY_US);
+  while (readBeltMark2(steps_taken) <= BLACK && steps_taken >= 0) {
+    controlMotor(STEPS_PER_READ, STEP_DELAY_US);
+    steps_taken -= STEPS_PER_READ;
   }
 
   long last_streak = 0;
   long current_streak = 0; // positive numbers > 0 mean white
-  long steps_taken = 0;
   while (steps_taken < SAFETY_MAX_STEP_COUNT) {
-    steps_taken++;
-    setDirection(FORWARD);
-    controlMotor(100, STEP_DELAY_US);
-    MarkColor current_mark = readBeltMark();
+    steps_taken += STEPS_PER_READ;
+    //setDirection(FORWARD);
+    //controlMotor(STEPS_PER_READ, STEP_DELAY_US);
+    int current_mark = (int)readBeltMark2(steps_taken)*STEPS_PER_READ;
     // streak continues
     if (!(current_mark > 0 ^ current_streak > 0)) {
+      //Serial.println("streak continues");
       current_streak += current_mark;
     } else { // streak is broken
+      Serial.println("streak broken: ");
+      Serial.println(current_streak);
       if (abs(current_streak) <= MAX_ERROR_LENGTH) {
+        Serial.println("classified as error");
         current_streak = last_streak - current_streak + current_mark;
         last_streak = 0;
       } else {
+        Serial.println("classified as new mark");
         if (abs(last_streak) > 0) {
           buffer.unshift(last_streak); // add to the front
+          printBuffer();
           if (calibrate()) break;
         }
         last_streak = current_streak;
@@ -157,20 +194,33 @@ long patternToPosition(long pattern[PATTERN_LENGTH]) {
 }
 
 bool calibrate() {
+  Serial.println("calibrate");
   //valid pattern if all marks are a multiple of the mark_basis and black patterns are exactly one mark_basis
   //sum all marks up until the first valid pattern so you know the difference
   
   const bool is_last_black = buffer.last() < 0;
   const bool is_first_black = buffer.first() < 0;
+  Serial.println(is_first_black);
+  Serial.println(is_last_black);
+  Serial.println(buffer.size());
   if (buffer.size() -(char)is_last_black -(char)is_first_black < PATTERN_LENGTH * 2 -1) return false;
   
   long pattern[PATTERN_LENGTH];
   long distance = 0;
   for (int index = (char)is_first_black; index <= buffer.size() -1 -(( PATTERN_LENGTH -1)*2) -(char)is_last_black; index += 2) {
+    Serial.print("Pattern-");
+    Serial.println(index);
     for (int i = 0; i < PATTERN_LENGTH; i++) {
+      Serial.print("Mark-");
+      Serial.print(i);
+      Serial.print(": ");
       // parse the white mark length and save it
       long white_mark = buffer[index+i*2];
       unsigned long white_mark_length = markLength(white_mark);
+      Serial.print(white_mark);
+      Serial.print("#");
+      Serial.print(white_mark_length);
+      Serial.print(", ");
       if (white_mark_length == 0) goto outer;
       pattern[i] = white_mark_length;
 
@@ -178,14 +228,19 @@ bool calibrate() {
       if (index+i*2+1 < buffer.size()) {
         long black_mark = buffer[index+i*2+1];
         unsigned long black_mark_length = markLength(black_mark);
+        Serial.print(black_mark);
+        Serial.print("#");
+        Serial.println(black_mark_length);
         if (black_mark_length != 1) goto outer;
       }
     }
     unsigned long position = patternToPosition(pattern);
     if (position > 0)
       //global_position = position + distance
+      Serial.println("position found");
       return true;
     outer:;
+    Serial.println("_");
     distance += abs(buffer[index+1]) + abs(buffer[index]);
   }
   return false;
@@ -210,20 +265,12 @@ void setDirection(Direction dir) {
 }
 
 void loop() {
-  digitalWrite(LED_PIN, LOW);
-  delay(100);
-  Serial.println(analogRead(BRIGHT_PIN));
-  delay(100);
-  digitalWrite(LED_PIN, HIGH);
-  delay(100);
-  Serial.println(analogRead(BRIGHT_PIN));
-  delay(1000);
-
-  /*MarkColor color = readBeltMark();
-  Serial.println(color);
-  delay(500);*/
-
-/*  if( radio.available()){
+  Serial.println("RunCalibration");
+  runCalibration();
+  Serial.println("StopCalibration");
+  delay(10000);
+/*
+  if( radio.available()){
     radio.read( &msg_data, sizeof(msg_data) );
 
     #ifdef DEBUG
@@ -254,6 +301,12 @@ void loop() {
       total_steps = msg_data.value;
       controlMotor(parallel_step_count, total_steps / parallel_step_count * STEP_DELAY_US);
       break;
+    case DEBUG_DEVICE:
+      radio.stopListening();
+      msg_data.code = 42;
+      msg_data.value = 24;
+      radio.write(&msg_data,sizeof(msg_data));
+      radio.startListening();
     default:
       #ifdef DEBUG
         Serial.println("Invalid Command");
@@ -262,53 +315,3 @@ void loop() {
     }
   }*/
 }
-
-
-/*
-
-GOAL
-- measure distance from lower turning point to higher turning point
-- while moving forward save each difference between Light off and Light on
-each cell in the array refers to one motor step
-save the start step count for the 0 array position
-HOW TO
-- color = false 'black'
-- iterate over all values in the array
-brightness_current, brightness_last = NaN
-color = BLACK
-step_start, step_end = NaN
-value_step_start = NaN
-step_current_rel = 0
-while (max_calibration_length not reached) {
-  brightness_current_change = (value_last-value_current) / distance_traveled // the higher the brighter aka the lower analogValue
-  if (step1 == NaN && current_brightness_change*(color==BLACK?1:-1) < MIN_BRIGHTNESS_CHANGE) {
-      step_start = step_current
-      value_step_start = value_current
-  }
-  if (step_start != NaN && abs(value_step_start-value_current) < MIN_BRIGHTNESS_CHANGE) {
-    // reset step_start
-    step_start = NaN
-    step_end = NaN
-    
-    // change color as we moved forward
-    color = (color==BlACK ? WHITE : BLACK)
-  }
-  if (step_start != NaN && current_brightness_change*(color==BLACK?1:-1) > MIN_BRIGHTNESS_CHANGE) {
-    //register the found mark
-    register_mark(step_start-step_end, color)
-    
-    //start next mark at current's end
-    step_start = step_end
-    value_step_start = value_current
-    color = (color==BlACK ? WHITE : BLACK)
-  }
-}
-- save the first step index S1 for which the diff to its direct neighbor S1+1 is (color?negative:positive) and surpasses threshold T1
-- if (diff(last_step, current_step) is (color?positive:negative) and the diff surpasses threshold T1
-- reset S1/S2 if current step diff to S1 is lower T1
-
-# this threshold can be smaller the harder the cliff is
-- save S1-S2 as a mark of color (color?white:black)
-- toggle color to detect next mark
-
-*/
