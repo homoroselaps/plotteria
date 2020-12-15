@@ -11,7 +11,7 @@ import math
 import csv
 
 #Real RF24/GPIO
-'''
+
 from RF24 import *
 import RPi.GPIO as GPIO
 '''
@@ -48,7 +48,7 @@ class RF24():
     def read(self, maxLen):
         return pack('<LL', 42, 42)
     def available(self):
-        return (choice([True, True, False]), 1)
+        return choice([True, True, False])
     payloadSize = 0
 
 class GPIO():
@@ -65,7 +65,7 @@ class GPIO():
     OUT = None
     HIGH = None
     LOW = None
-
+'''
 
 ce_gpio_pin = 22
 irq_gpio_pin = None
@@ -416,11 +416,10 @@ def debugAddress(addr):
   radio.openReadingPipe(1, Addresses.main_unit.value)
   radio.startListening()
   time.sleep(0.5) # sleep for 0.5s to receive
-  available = radio.available() # (result,pipe)
-  while(available[0]):
-    data = radio.read(1024)
+  while(radio.available()):
+    data = radio.read(8)
+    print(data)
     print(unpack_msg(data))
-    available = radio.available() # (result,pipe)
   radio.stopListening()
 
 setup()

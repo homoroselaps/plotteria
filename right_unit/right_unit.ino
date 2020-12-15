@@ -5,7 +5,7 @@
 #include "Shared.h"
 #include <TMC2208Stepper.h>
 
-//#define DEBUG true
+#define DEBUG true
 
 #define STEP_PIN 5
 #define DIR_PIN 6
@@ -265,12 +265,12 @@ void setDirection(Direction dir) {
 }
 
 void loop() {
-  Serial.println("RunCalibration");
+/*  Serial.println("RunCalibration");
   runCalibration();
   Serial.println("StopCalibration");
-  delay(10000);
-/*
-  if( radio.available()){
+  delay(10000); */
+
+  if(radio.available()){
     radio.read( &msg_data, sizeof(msg_data) );
 
     #ifdef DEBUG
@@ -307,11 +307,12 @@ void loop() {
       msg_data.value = 24;
       radio.write(&msg_data,sizeof(msg_data));
       radio.startListening();
+      break;
     default:
       #ifdef DEBUG
         Serial.println("Invalid Command");
       #endif
       break;
     }
-  }*/
+  }
 }
