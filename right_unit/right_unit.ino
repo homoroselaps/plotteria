@@ -33,6 +33,7 @@ RF24 radio(10,9);
 TMC2208Stepper driver = TMC2208Stepper(&Serial);	
 
 CircularBuffer<long, MAX_BUFFER_LENGTH> buffer;
+CircularBuffer<Message, 16> debug_buffer;
 
 unsigned long parallel_step_count = 0;
 unsigned long total_steps = 0;
@@ -58,11 +59,11 @@ void setup() {
   //Setup Radio module
   
   radio.begin();
-  radio.setPALevel(RF24_PA_LOW);
+  radio.setPALevel(RF24_PA_HIGH);
   radio.setAutoAck(true);
   radio.enableAckPayload();
-  radio.setRetries(0, 15);
-  radio.setPayloadSize(16);
+  radio.setRetries(15, 15);
+  radio.setPayloadSize(8);
   //radio.printDetails();
 
   radio.openWritingPipe(addresses[MAIN_UNIT]);
@@ -193,6 +194,10 @@ long patternToPosition(long pattern[PATTERN_LENGTH]) {
   return 42;
 }
 
+bool add_debug_msg(long code, long value) {
+  return debug_buffer.push(Message{code, value});
+}
+
 bool calibrate() {
   Serial.println("calibrate");
   //valid pattern if all marks are a multiple of the mark_basis and black patterns are exactly one mark_basis
@@ -302,10 +307,17 @@ void loop() {
       controlMotor(parallel_step_count, total_steps / parallel_step_count * STEP_DELAY_US);
       break;
     case DEBUG_DEVICE:
+      add_debug_msg(debug_buffer.size(),42);
       radio.stopListening();
-      msg_data.code = 42;
-      msg_data.value = 24;
-      radio.write(&msg_data,sizeof(msg_data));
+      for (int index = 0; index <= debug_buffer.size() -1; index++) {
+        bool success = radio.write(&(debug_buffer[index]),sizeof(msg_data));
+        Serial.print(debug_buffer[index].code);
+        Serial.print(",");
+        Serial.print(debug_buffer[index].value);
+        Serial.print(": ");
+        Serial.println(success);
+        if (!success) index--;
+      }
       radio.startListening();
       break;
     default:

@@ -301,11 +301,11 @@ def unpack_msg(byte_array):
 
 def setup():    
     radio.begin()
-    radio.setPALevel(RF24_PA_LOW)
+    radio.setPALevel(RF24_PA_HIGH)
     radio.setAutoAck(True)            # Ensure autoACK is enabled
     radio.enableAckPayload()       # Allow optional ack payloads
-    radio.setRetries(0,15)         # Smallest time between retries, max no. of retries
-    radio.payloadSize = 16
+    radio.setRetries(15,15)         # Smallest time between retries, max no. of retries
+    radio.payloadSize = 8
     radio.printDetails()           # Dump the configuration of the rf unit for debugging
 
     # initialize a/current_b by calibration
@@ -413,13 +413,16 @@ def transformPoint(point):
 def debugAddress(addr):
   if not sendMessage(addr.value, pack_msg(0, Command.debug_device.value)):
     print("Failed")
+  print("Waiting for response")
   radio.openReadingPipe(1, Addresses.main_unit.value)
   radio.startListening()
-  time.sleep(0.5) # sleep for 0.5s to receive
+  time.sleep(1) # sleep for 0.5s to receive
   while(radio.available()):
-    data = radio.read(8)
-    print(data)
-    print(unpack_msg(data))
+    while(radio.available()):
+      data = radio.read(8)
+      print(data)
+      print(unpack_msg(data))
+    time.sleep(2) # sleep for 0.5s to receive
   radio.stopListening()
 
 setup()
