@@ -74,10 +74,10 @@ step_gpio_pin = 23
 dir_gpio_pin = 24
 
 class Addresses(Enum):
-    main_unit = 0xF0F0F0F0E1
-    left_unit = 0xF0F0F0F0D2
-    right_unit = 0xF0F0F0F0C3
-    pen_unit = 0xF0F0F0F0B4
+    main_unit = 0xABCDABCD71
+    left_unit = 0xABCDABCDD2
+    right_unit = 0xABCDABCDC3
+    pen_unit = 0xABCDABCDB4
 
 def saveInstructions(csv_file, instructions):
     with open(csv_file, 'w') as csvfile:
@@ -311,16 +311,19 @@ path = ""
 slowdown = 16
 
 def setup():    
-    radio.begin()
-    radio.setPALevel(RF24_PA_HIGH)
-    radio.setAutoAck(True)            # Ensure autoACK is enabled
-    radio.enableAckPayload()       # Allow optional ack payloads
-    radio.setRetries(15, 15)         # Smallest time between retries, max no. of retries
-    radio.payloadSize = 8
-    radio.printDetails()           # Dump the configuration of the rf unit for debugging
+  radio.begin()
+  radio.setPALevel(RF24_PA_LOW)
+  radio.setAutoAck(True)            # Ensure autoACK is enabled
+  #radio.enableAckPayload()       # Allow optional ack payloads
+  radio.setRetries(15, 15)         # Smallest time between retries, max no. of retries
+  radio.payloadSize = 8
+  radio.printDetails()           # Dump the configuration of the rf unit for debugging
 
-    # initialize a/current_b by calibration
-    calibrate()
+  radio.stopListening()
+  radio.openReadingPipe(1, Addresses.main_unit.value)
+
+  # initialize a/current_b by calibration
+  calibrate()
 
 def calibrate():
   global current_a, current_b, origin
@@ -333,6 +336,7 @@ def calibrate():
 def sendMessage(address, data):
   radio.stopListening()
   radio.openWritingPipe(address)
+  time.sleep(0.01)
   return radio.write(data)
 
 def controlBothMotor(dir_left, steps_left, dir_right, steps_right, total_steps=0, sleep=True):
@@ -424,12 +428,14 @@ def transformPoint(point):
 def debugAddress(addr):
   if not sendMessage(addr.value, MessageData(Command.debug_device.value, 0).pack()):
     print("Failed")
+    return
   print("Waiting for response")
-  radio.openReadingPipe(1, Addresses.main_unit.value)
   radio.startListening()
   timeout = 10 #10s timeout
   try:
     # the first message transmits the total number of debug messages
+    goodSignal = radio.testRPD()
+    print("Strong signal > 64dBm" if goodSignal else "Weak signal < 64dBm")
     while(not radio.available()):
       time.sleep(0.1)
       timeout = timeout - 0.1

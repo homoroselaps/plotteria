@@ -1,7 +1,6 @@
 #define STEP_DELAY_US 100 // step delay in microseconds
 #define MICROSTEPS 16
-
-uint64_t addresses[4] = { 0xF0F0F0F0E1, 0xF0F0F0F0D2, 0xF0F0F0F0C3, 0xF0F0F0F0B4 };
+uint64_t addresses[4] = { 0xABCDABCD71, 0xABCDABCDD2, 0xABCDABCDC3, 0xABCDABCDB4 };
 enum AddrIndex : byte { MAIN_UNIT = 0, LEFT_UNIT = 1, RIGHT_UNIT = 2, PEN_UNIT = 3 };
 enum Command : byte { BACKWARD_DIRECT = 0, FORWARD_DIRECT = 1, BACKWARD_PARALLEL = 2, FORWARD_PARALLEL = 3, START_PARALLEL = 4, DEBUG_DEVICE = 5 };
 enum Direction : bool { FORWARD = true, BACKWARD = false};

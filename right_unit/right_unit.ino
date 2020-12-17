@@ -60,13 +60,14 @@ void setup() {
   //Setup Radio module
   
   radio.begin();
-  radio.setPALevel(RF24_PA_HIGH);
+  radio.setPALevel(RF24_PA_LOW);
   radio.setAutoAck(true);
-  radio.enableAckPayload();
+  //radio.enableAckPayload();
   radio.setRetries(15, 15);
   radio.setPayloadSize(8);
   //radio.printDetails();
 
+  radio.stopListening();
   radio.openWritingPipe(addresses[MAIN_UNIT]);
   if (is_right_unit) {
     radio.openReadingPipe(1, addresses[RIGHT_UNIT]);
@@ -280,9 +281,10 @@ void loop() {
     radio.read( &msg_data, sizeof(msg_data) );
 
     #ifdef DEBUG
-      Serial.println("Received: ");
+      Serial.print("Received code:");
+      Serial.print(msg_data.code);
+      Serial.print(" value:");
       Serial.println(msg_data.value);
-      Serial.println(msg_data.code);
     #endif
 
     switch (msg_data.code)
@@ -321,6 +323,7 @@ void loop() {
         Serial.print(msg_data.value);
         Serial.print(": ");
         Serial.println(success);
+        delay(53);
       }
       
       for (int index = 0; index <= debug_buffer.size() -1; index++) {
@@ -332,6 +335,7 @@ void loop() {
           Serial.print(debug_buffer[index].value);
           Serial.print(": ");
           Serial.println(success);
+          delay(53);
           if (success) break;
         }
       }
