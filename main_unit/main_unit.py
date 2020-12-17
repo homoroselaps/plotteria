@@ -9,6 +9,7 @@ from pathlib import Path as FilePath
 from random import choice
 import math
 import csv
+import traceback 
 
 #Real RF24/GPIO
 
@@ -278,6 +279,22 @@ class Command(Enum):
   start_parallel = 4
   debug_device = 5
 
+class MessageData:
+  def __init__(self, code, value):
+    self.code = code
+    self.value = value
+  
+  def __str__(self):
+    return "({},{})".format(self.code, self.value)
+
+  def pack(self):
+    return pack('<LL', self.value, self.code)
+  
+  @classmethod
+  def unpack(cls, byte_array):
+    data = unpack('<LL', byte_array)
+    return MessageData(data[1], data[0])
+
 current_state = State.READY
 motor_distance = 1350.0 # the distance between the two motors in mm
 current_a = 0 # the number of steps the pen is away from the left motor
@@ -293,18 +310,12 @@ instr_index = 0
 path = ""
 slowdown = 16
 
-def pack_msg(value1, code):
-    return pack('<LL', value1, code)
-
-def unpack_msg(byte_array):
-    return unpack('<LL', byte_array)
-
 def setup():    
     radio.begin()
     radio.setPALevel(RF24_PA_HIGH)
     radio.setAutoAck(True)            # Ensure autoACK is enabled
     radio.enableAckPayload()       # Allow optional ack payloads
-    radio.setRetries(15,15)         # Smallest time between retries, max no. of retries
+    radio.setRetries(15, 15)         # Smallest time between retries, max no. of retries
     radio.payloadSize = 8
     radio.printDetails()           # Dump the configuration of the rf unit for debugging
 
@@ -320,32 +331,32 @@ def calibrate():
   print("ab: {},{}".format(current_a,current_b))
 
 def sendMessage(address, data):
-  radio.openWritingPipe(address)
   radio.stopListening()
+  radio.openWritingPipe(address)
   return radio.write(data)
 
 def controlBothMotor(dir_left, steps_left, dir_right, steps_right, total_steps=0, sleep=True):
   total_steps = max(steps_left, steps_right, total_steps)
   print("Set Left:{} ,{}".format(dir_left.name, steps_left))
-  if not sendMessage(Addresses.left_unit.value, pack_msg(
-    steps_left,
-    Command.backward_parallel.value if dir_left == Direction.backward else Command.forward_parallel.value)
+  if not sendMessage(Addresses.left_unit.value, MessageData(
+    Command.backward_parallel.value if dir_left == Direction.backward else Command.forward_parallel.value,
+    steps_left).pack()
   ):
     print("Failed")
     return False
   print("Set Right:{} ,{}".format(dir_right.name, steps_right))
-  if not sendMessage(Addresses.right_unit.value, pack_msg(
-    steps_right, 
-    Command.backward_parallel.value if dir_right == Direction.backward else Command.forward_parallel.value)
+  if not sendMessage(Addresses.right_unit.value, MessageData( 
+    Command.backward_parallel.value if dir_right == Direction.backward else Command.forward_parallel.value,
+    steps_right).pack()
   ):
     print("Failed")
     return False
   print("Send Start Left")
-  if not sendMessage(Addresses.left_unit.value, pack_msg(total_steps, Command.start_parallel.value)):
+  if not sendMessage(Addresses.left_unit.value, MessageData(Command.start_parallel.value, total_steps).pack()):
     print("Failed")
     return False
   print("Send Start Right")
-  if not sendMessage(Addresses.right_unit.value, pack_msg(total_steps, Command.start_parallel.value)):
+  if not sendMessage(Addresses.right_unit.value, MessageData(Command.start_parallel.value, total_steps).pack()):
     print("Failed silent")
   if sleep:
     time.sleep(total_steps * step_delay)
@@ -353,7 +364,7 @@ def controlBothMotor(dir_left, steps_left, dir_right, steps_right, total_steps=0
 
 def controlLeftMotor(dir, num_steps, sleep=True):
   print("Set Left:{} ,{}".format(dir.name, num_steps))
-  if sendMessage(Addresses.left_unit.value, pack_msg(num_steps, dir.value)):
+  if sendMessage(Addresses.left_unit.value, MessageData(dir.value, num_steps).pack()):
     if sleep:
       time.sleep(num_steps * step_delay)
     return True
@@ -362,7 +373,7 @@ def controlLeftMotor(dir, num_steps, sleep=True):
 
 def controlRightMotor(dir, num_steps, sleep=True):
   print("Set Right: {}, {}".format(dir.name, num_steps))
-  if sendMessage(Addresses.right_unit.value, pack_msg(num_steps, dir.value)):
+  if sendMessage(Addresses.right_unit.value, MessageData(dir.value, num_steps).pack()):
       if sleep:
           time.sleep(num_steps * step_delay)
       return True
@@ -371,7 +382,7 @@ def controlRightMotor(dir, num_steps, sleep=True):
 
 def controlPen(pen_pos):
   print("Set Pen: {}".format(pen_pos.name))
-  return sendMessage(Addresses.pen_unit.value, pack_msg(0, pen_pos.value))
+  return sendMessage(Addresses.pen_unit.value, MessageData(pen_pos.value, 0).pack())
 
 def abToPoint(steps_a, steps_b, motor_distance):
   length_a = steps_a * step_length
@@ -411,32 +422,43 @@ def transformPoint(point):
     return (point * img_scale) + origin + img_offset
 
 def debugAddress(addr):
-  if not sendMessage(addr.value, pack_msg(0, Command.debug_device.value)):
+  if not sendMessage(addr.value, MessageData(Command.debug_device.value, 0).pack()):
     print("Failed")
   print("Waiting for response")
   radio.openReadingPipe(1, Addresses.main_unit.value)
   radio.startListening()
-  time.sleep(1) # sleep for 0.5s to receive
-  while(radio.available()):
-    while(radio.available()):
-      data = radio.read(8)
-      print(data)
-      print(unpack_msg(data))
-    time.sleep(2) # sleep for 0.5s to receive
-  radio.stopListening()
+  timeout = 10 #10s timeout
+  try:
+    # the first message transmits the total number of debug messages
+    while(not radio.available()):
+      time.sleep(0.1)
+      timeout = timeout - 0.1
+      if timeout <= 0: raise TimeoutError()
+    data = MessageData.unpack(radio.read(8))
+    print(data)
+    size = data.value # get the value from the message
 
-setup()
+    for msg_index in range(0, size):
+      while(not radio.available()):
+        time.sleep(0.1)
+        timeout = timeout - 0.1
+        if timeout <= 0: raise TimeoutError()
+      data = MessageData.unpack(radio.read(8))
+      print("{}/{}: {}".format(msg_index+1, size, data))
+  except TimeoutError:
+    print("Timeout reached")
+  finally:
+    radio.stopListening()
 
-### Main Loop
-while True:
+def main():
   inp_cmd = str(input('Enter Cmd: ')).lower()
   if inp_cmd == 'exit':
-    break
+    return True
   if inp_cmd == 'open':
     path = str(input('file name: '))
     if not FilePath(path).is_file():
         print("Not Found")
-        continue
+        return
     file_extension = path.split('.')[-1]
     if file_extension == 'svg':
         plot = SvgPlot(path)
@@ -496,7 +518,7 @@ while True:
     for _ in range(0,instr_count):
       if instr_index >= len(instructions):
         print("Finish")
-        break
+        return
       point, pen, index = instructions[instr_index]
       print("{}: {}, {}, {}".format(instr_index, index, pen.name, point))
       if pen == PenPosition.up:
@@ -597,4 +619,14 @@ while True:
       debugAddress(list(Addresses)[count])
     else:
       print("Invalid Device")
+      
+if __name__ == "__main__":
+  setup()
+
+  while (True):
+    try:
+      if main(): break
+    except Exception as e:
+      print(e)
+      traceback.print_exc()
     

@@ -24,6 +24,7 @@
 #define LOWER_MARK_ERROR (MARK_BASIS - MARK_MAX_ERROR)
 #define MAX_ERROR_LENGTH (MARK_BASIS / 100) // 1% as error margin to prevent incorrect brightness readings
 #define PATTERN_LENGTH 3 // the number of white marks that resamble a pattern
+#define MAX_RETRIES 32
 
 enum MarkColor : char { WHITE = 1, BLACK = -1};
 
@@ -309,14 +310,30 @@ void loop() {
     case DEBUG_DEVICE:
       add_debug_msg(debug_buffer.size(),42);
       radio.stopListening();
-      for (int index = 0; index <= debug_buffer.size() -1; index++) {
-        bool success = radio.write(&(debug_buffer[index]),sizeof(msg_data));
-        Serial.print(debug_buffer[index].code);
+      bool success = false;
+      msg_data.code = 0;
+      msg_data.value = debug_buffer.size();
+      while (!success)
+      {
+        success = radio.write(&msg_data, sizeof(msg_data));
+        Serial.print(msg_data.code);
         Serial.print(",");
-        Serial.print(debug_buffer[index].value);
+        Serial.print(msg_data.value);
         Serial.print(": ");
         Serial.println(success);
-        if (!success) index--;
+      }
+      
+      for (int index = 0; index <= debug_buffer.size() -1; index++) {
+        for (size_t i = 0; i < MAX_RETRIES; i++)
+        {
+          success = radio.write(&(debug_buffer[index]),sizeof(msg_data));
+          Serial.print(debug_buffer[index].code);
+          Serial.print(",");
+          Serial.print(debug_buffer[index].value);
+          Serial.print(": ");
+          Serial.println(success);
+          if (success) break;
+        }
       }
       radio.startListening();
       break;
