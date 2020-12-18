@@ -47,9 +47,11 @@ class RF24():
         print("{},{}".format(data, length))
         return True
     def read(self, maxLen):
-        return pack('<LL', 42, 42)
+        return pack('<LL', choice([1,3,5,7]), choice([1,3,5,7]))
     def available(self):
         return choice([True, True, False])
+    def testRPD(self):
+        return True
     payloadSize = 0
 
 class GPIO():
@@ -247,7 +249,7 @@ step_length = 40.0 / SPR
 # microseconds delay between each step
 STEP_DELAY_US = 100
 # seconds delay between each step
-step_delay = 100/1000/1000
+step_delay = STEP_DELAY_US/1000/1000
 
 radio = RF24(ce_gpio_pin, 0)
 
@@ -278,6 +280,7 @@ class Command(Enum):
   forward_parallel = 3
   start_parallel = 4
   debug_device = 5
+  calibrate_device = 6
 
 class MessageData:
   def __init__(self, code, value):
@@ -288,12 +291,12 @@ class MessageData:
     return "({},{})".format(self.code, self.value)
 
   def pack(self):
-    return pack('<LL', self.value, self.code)
+    return pack('<LL', self.code, self.value)
   
   @classmethod
   def unpack(cls, byte_array):
     data = unpack('<LL', byte_array)
-    return MessageData(data[1], data[0])
+    return MessageData(data[0], data[1])
 
 current_state = State.READY
 motor_distance = 1350.0 # the distance between the two motors in mm
@@ -332,6 +335,11 @@ def calibrate():
   origin = complex(motor_distance / 2.0, motor_distance / 2.0 )
   print("origin saved {}".format(origin))
   print("ab: {},{}".format(current_a,current_b))
+
+def calibrateDevice(addr):
+  if not sendMessage(addr.value, MessageData(Command.calibrate_device.value, 0).pack()):
+    print("Failed")
+    return
 
 def sendMessage(address, data):
   radio.stopListening()
@@ -422,10 +430,10 @@ def moveToAB(target_a, target_b, quickmode=False):
       return controlBothMotor(dir_a,step_count_a,dir_b,step_count_b,max(step_count_a,step_count_b)*slowdown)
 
 def transformPoint(point):
-    global origin
+    global origin, img_scale, img_offset
     return (point * img_scale) + origin + img_offset
 
-def debugAddress(addr):
+def debugDevice(addr):
   if not sendMessage(addr.value, MessageData(Command.debug_device.value, 0).pack()):
     print("Failed")
     return
@@ -457,6 +465,8 @@ def debugAddress(addr):
     radio.stopListening()
 
 def main():
+  global current_a, current_b, current_position, instr_index, slowdown, img_scale, img_offset
+
   inp_cmd = str(input('Enter Cmd: ')).lower()
   if inp_cmd == 'exit':
     return True
@@ -622,7 +632,15 @@ def main():
       print('[{}] {}'.format(i, str(v)))
     count = readInt('Select device:', 99)
     if count < len(Addresses):
-      debugAddress(list(Addresses)[count])
+      debugDevice(list(Addresses)[count])
+    else:
+      print("Invalid Device")
+  elif inp_cmd == 'caldev':
+    for i,v in enumerate(Addresses):
+      print('[{}] {}'.format(i, str(v)))
+    count = readInt('Select device:', 99)
+    if count < len(Addresses):
+      calibrateDevice(list(Addresses)[count])
     else:
       print("Invalid Device")
       
